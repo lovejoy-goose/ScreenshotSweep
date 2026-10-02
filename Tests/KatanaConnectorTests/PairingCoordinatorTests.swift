@@ -147,4 +147,59 @@ final class PairingCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.status, .unpaired)
         XCTAssertEqual(coordinator.notice, .credentialsUnavailable)
     }
+
+    @MainActor
+    func testFlaggedCredentialsRestoreAsRequiresRepair() {
+        var flagged = Fixtures.credentials
+        flagged.requiresRepair = true
+        let coordinator = makeCoordinator(store: InMemoryTokenStore(credentials: flagged))
+        XCTAssertEqual(coordinator.status, .requiresRepair(Fixtures.credentials.device))
+        XCTAssertEqual(coordinator.connectionState, .revoked)
+    }
+
+    @MainActor
+    func testMarkRequiresRepairKeepsMetadataAndFlagsToken() {
+        let store = InMemoryTokenStore(credentials: Fixtures.credentials)
+        let coordinator = makeCoordinator(store: store)
+        coordinator.markRequiresRepair()
+
+        XCTAssertEqual(coordinator.status, .requiresRepair(Fixtures.credentials.device))
+        XCTAssertEqual(store.credentials?.requiresRepair, true)
+        XCTAssertEqual(store.deleteCount, 0)
+    }
+
+    @MainActor
+    func testRepairReplacesConnectionOnlyAfterConfirmation() async {
+        var flagged = Fixtures.credentials
+        flagged.requiresRepair = true
+        let store = InMemoryTokenStore(credentials: flagged)
+        let client = MockPairingClient(result: .success(PairingCompleteResponse(
+            deviceID: "dev_new", deviceToken: DeviceToken("tok_new_fixture"), displayName: "iPhone", pairedAt: Fixtures.pairedAt)))
+        let coordinator = makeCoordinator(client: client, store: store)
+
+        // Scanning and cancelling keeps the previous connection untouched.
+        coordinator.handleScannedCode(Fixtures.qr())
+        XCTAssertEqual(coordinator.deviceToReplace, Fixtures.credentials.device)
+        coordinator.cancel()
+        XCTAssertEqual(coordinator.status, .requiresRepair(Fixtures.credentials.device))
+        XCTAssertEqual(store.credentials, flagged)
+        XCTAssertNil(coordinator.deviceToReplace)
+
+        // Confirming replaces it.
+        coordinator.handleScannedCode(Fixtures.qr())
+        await coordinator.confirm(displayName: "iPhone")
+        XCTAssertEqual(store.credentials?.token, DeviceToken("tok_new_fixture"))
+        XCTAssertEqual(store.credentials?.requiresRepair, false)
+        XCTAssertEqual(store.credentials?.device.deviceID, "dev_new")
+        XCTAssertNil(coordinator.deviceToReplace)
+        guard case .connected = coordinator.status else { return XCTFail("Expected connected") }
+    }
+
+    @MainActor
+    func testConnectedCannotBeReplacedByScanning() {
+        let store = InMemoryTokenStore(credentials: Fixtures.credentials)
+        let coordinator = makeCoordinator(store: store)
+        coordinator.handleScannedCode(Fixtures.qr())
+        XCTAssertEqual(coordinator.status, .connected(Fixtures.credentials.device))
+    }
 }

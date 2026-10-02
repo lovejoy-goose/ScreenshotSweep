@@ -9,8 +9,8 @@
 | KC-001 | Repository foundation | **done** | — |
 | KC-002 | Rename and modular structure | **done** | KC-001 |
 | KC-003 | Connector Core models and Capability Registry | **done** | KC-002 |
-| KC-004 | QR pairing and Keychain | **in review** (ждёт e2e с реальным Katana endpoint) | KC-003 |
-| KC-005 | Persistent event queue and API client | planned | KC-003, KC-004 |
+| KC-004 | QR pairing and Keychain | **done** | KC-003 |
+| KC-005 | Persistent event queue and authenticated API client | **in review** (ждёт CI и проверки с реальным Katana API) | KC-003, KC-004 |
 | KC-006 | Screenshot Cleanup session integration | planned | KC-005 |
 | KC-007 | Custom URL scheme | planned | KC-002, KC-004 |
 | KC-008 | Capability Lab | planned | KC-003, KC-005 |
@@ -81,7 +81,7 @@
 
 ## KC-004 QR pairing and Keychain
 
-- **Статус:** in review — клиентская часть, тесты и документация готовы; переводится в done после end-to-end pairing с реальным Katana endpoint
+- **Статус:** done
 - **Цель:** безопасная клиентская часть QR pairing: сканирование → проверка QR → подтверждение хоста и имени → обмен одноразового кода → device token в Keychain.
 - **Scope:**
   - `Core/Pairing`: `PairingCode`/`DeviceToken` (redacted), `PairingSecurityPolicy`, `PairingPayloadParser` (QR v1), `PairingClient` + `URLSessionPairingClient`, `PairingCoordinator`;
@@ -100,24 +100,33 @@
   - [x] «Отключить на этом iPhone» удаляет локальные credentials после подтверждения; текст честно говорит, что сервер не уведомляется.
   - [x] Камера запрашивается только по «Сканировать QR»; добавлен `NSCameraUsageDescription`; других entitlements нет.
   - [x] Unit-тесты (mock URLProtocol, in-memory store) — 15 обязательных сценариев.
-  - [ ] Тесты и device-сборка зелёные в CI.
-  - [ ] End-to-end pairing с реальным Katana endpoint (нужен `POST /api/connector/pairing/complete` и QR из Katana).
-  - [ ] Ручной чек-лист Pairing из `TESTING.md` на устройстве.
+  - [x] Тесты и device-сборка зелёные в CI: commit `bef08be70f9d86421131ea2c618c54e28544c170`, run https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37041865982 (35 unit-тестов).
+  - [x] End-to-end pairing с реальным Katana endpoint выполнен 2026-10-02 (подтверждено пользователем): Katana создала устройство со статусом active, сервер хранит только SHA-256-хеш device token, Connector сохранил credentials в Keychain и показывает connected.
+  - [x] Ручной чек-лист Pairing на устройстве (подтверждено пользователем вместе с e2e).
 
-## KC-005 Persistent event queue and API client
+## KC-005 Persistent event queue and authenticated API client
 
-- **Статус:** planned
-- **Цель:** надёжная доставка событий в Katana API.
-- **Scope:** `ConnectorEvent` (конверт `event_id`, `type`, `occurred_at`, `session_id`, `payload`) и протокол `EventSink` (перенесены из KC-003); выбор хранения (файл Codable / SQLite из SDK); `EventQueue` (атомарная запись, чтение пачками, удаление после `accepted`/`duplicate`); `APIClient` (event batch, capability report, check connection); backoff; обработка 401/4xx/5xx; экран статуса подключения; file protection и исключение из бэкапа.
-- **Вне scope:** интеграция с Screenshot Cleanup UI.
+- **Статус:** in review — код, тесты и документация готовы; переводится в done после зелёного CI и проверки с реальным Katana API
+- **Цель:** надёжный авторизованный API-клиент и постоянная идемпотентная очередь событий без интеграции со Screenshot Cleanup.
+- **Scope:**
+  - `Core/API`: `ConnectorTransport` (без редиректов, ≤ 64 KiB), `ConnectorAPIError`, модели check / capability report / event batch, `URLSessionConnectorAPIClient` (Bearer из Keychain перед каждым запросом);
+  - `Core/Events`: `ConnectorEvent` + `JSONValue`, `EventQueueStore` (JSON-файл, атомарно, file protection, без backup, quarantine), `EventQueue` (actor, FIFO, дедупликация, лимиты, rejected-журнал), `EventDeliveryCoordinator` (триггеры, single-flight, backoff, 401);
+  - `PairingCredentials.requires_repair`, `PairingCoordinator.requiresRepair` и повторное pairing с подтверждением замены;
+  - Dashboard: статус подключения/повторного подключения, последняя синхронизация, очередь, «Проверить соединение», «Синхронизировать»;
+  - решения D-023…D-028, маршруты в `API.md`.
+- **Вне scope:** Screenshot Cleanup и реальные события, URL scheme, Capability Lab, HealthKit/Core NFC/Bluetooth, BackgroundTasks/background URLSession, серверный revoke, новые разрешения, зависимости.
+- **Документы:** `API.md`, `ARCHITECTURE.md`, `DECISIONS.md` (D-023…D-028), `TESTING.md`.
 - **Зависимости:** KC-003, KC-004.
 - **Acceptance criteria:**
-  - [ ] Событие, записанное в очередь, переживает kill приложения и отправляется после перезапуска.
-  - [ ] Повторная отправка использует тот же `event_id` и payload.
-  - [ ] Ответ `duplicate` удаляет событие из очереди.
-  - [ ] 401 переводит pairing в «нужно перепривязать» без потери очереди.
-  - [ ] Unit-тесты очереди и клиента на mock-транспорте (`URLProtocol`).
-  - [ ] Логи не содержат токенов и payload.
+  - [x] Очередь: один файл, атомарная запись, actor, FIFO, уникальный `event_id`, batch ≤ 20, удаление только после accepted/duplicate/rejected, retryable-ошибки сохраняют события, повреждённый файл сохраняется (quarantine) с typed error, без backup, file protection, без токенов, лимиты зафиксированы и протестированы.
+  - [x] API client: три маршрута, Bearer, Accept/Content-Type, HTTPS по policy, без редиректов, timeout 15 с, ответ ≤ 64 KiB, ISO 8601 с дробными секундами, typed errors, строгая проверка results.
+  - [x] 401: сеть прекращается, credentials помечаются и больше не используются, очередь сохраняется, UI «Подключите Katana заново».
+  - [x] Доставка: триггеры launch/foreground/новое событие/кнопка; один flush; backoff с cap и jitter через injectable sleeper; отмена не удаляет события; без BackgroundTasks.
+  - [x] Dashboard показывает честный статус без токена и сырых ошибок; новых разрешений нет.
+  - [x] Unit-тесты по 26 обязательным сценариям.
+  - [ ] Тесты и device-сборка зелёные в CI.
+  - [ ] Проверка с реальным Katana API: check connection, capability report, event batch (accepted/duplicate/rejected), 401 после отзыва устройства.
+- **Заметки:** события, накопленные до повторного pairing, будут отправлены в новое подключение — открытый вопрос Q-5 до KC-006.
 
 ## KC-006 Screenshot Cleanup session integration
 

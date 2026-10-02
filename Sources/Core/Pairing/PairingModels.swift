@@ -190,12 +190,26 @@ struct PairedDevice: Codable, Equatable, Sendable {
 }
 
 /// Everything persisted in Keychain: the token plus minimal pairing metadata.
+/// `requiresRepair` is set after Katana answered 401: the token is never used again
+/// and the user is asked to pair anew.
 struct PairingCredentials: Codable, Equatable, Sendable {
     let token: DeviceToken
     let device: PairedDevice
+    var requiresRepair = false
 
     enum CodingKeys: String, CodingKey {
         case token = "device_token"
         case device
+        case requiresRepair = "requires_repair"
+    }
+}
+
+extension PairingCredentials {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        token = try container.decode(DeviceToken.self, forKey: .token)
+        device = try container.decode(PairedDevice.self, forKey: .device)
+        // Items written before KC-005 have no flag.
+        requiresRepair = try container.decodeIfPresent(Bool.self, forKey: .requiresRepair) ?? false
     }
 }

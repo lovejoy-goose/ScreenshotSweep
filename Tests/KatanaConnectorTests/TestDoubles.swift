@@ -58,6 +58,13 @@ final class MockURLProtocol: URLProtocol {
 
     static var reply: Reply = .failure(.notConnectedToInternet)
     static var requestCount = 0
+    static var lastRequest: URLRequest?
+
+    static func reset() {
+        reply = .failure(.notConnectedToInternet)
+        requestCount = 0
+        lastRequest = nil
+    }
 
     static func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
@@ -70,6 +77,7 @@ final class MockURLProtocol: URLProtocol {
 
     override func startLoading() {
         Self.requestCount += 1
+        Self.lastRequest = request
         switch Self.reply {
         case .response(let status, let body):
             let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1",
@@ -142,3 +150,106 @@ func assertPairingError(_ expected: PairingError,
         XCTFail("Expected \(expected), got \(error)", file: file, line: line)
     }
 }
+
+// MARK: - KC-005 doubles
+
+final class InMemorySyncStateStore: SyncStateStoring {
+    var lastSuccessfulSync: Date?
+}
+
+/// Records requested delays instead of sleeping; honours cancellation.
+final class RecordingSleeper: DeliverySleeper, @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [Double] = []
+
+    var delays: [Double] {
+        lock.lock(); defer { lock.unlock() }
+        return recorded
+    }
+
+    func sleep(seconds: Double) async throws {
+        lock.lock()
+        recorded.append(seconds)
+        lock.unlock()
+        try Task.checkCancellation()
+    }
+}
+
+/// Scriptable ConnectorAPI that also tracks concurrency.
+final class MockConnectorAPI: ConnectorAPI, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _batchCalls = 0
+    private var _inFlight = 0
+    private var _maxInFlight = 0
+    private var _sentBatches: [[ConnectorEvent]] = []
+    private var _reportCalls = 0
+
+    var batchHandler: @Sendable ([ConnectorEvent]) async throws -> [UUID: EventDeliveryResult] = { events in
+        MockConnectorAPI.results(events, .accepted)
+    }
+    var reportHandler: @Sendable () async throws -> Void = {}
+    var checkHandler: @Sendable () async throws -> ConnectionCheckResponse = {
+        ConnectionCheckResponse(ok: true, serverTime: Fixtures.pairedAt, accountLabel: "Fixture")
+    }
+
+    var batchCalls: Int { lock.lock(); defer { lock.unlock() }; return _batchCalls }
+    var maxInFlight: Int { lock.lock(); defer { lock.unlock() }; return _maxInFlight }
+    var sentBatches: [[ConnectorEvent]] { lock.lock(); defer { lock.unlock() }; return _sentBatches }
+    var reportCalls: Int { lock.lock(); defer { lock.unlock() }; return _reportCalls }
+
+    static func results(_ events: [ConnectorEvent], _ status: EventDeliveryStatus) -> [UUID: EventDeliveryResult] {
+        Dictionary(uniqueKeysWithValues: events.map { ($0.eventID, EventDeliveryResult(eventID: $0.eventID, status: status, code: nil)) })
+    }
+
+    func checkConnection() async throws -> ConnectionCheckResponse {
+        try await checkHandler()
+    }
+
+    func reportCapabilities(_ capabilities: [CapabilitySnapshot]) async throws {
+        lock.lock(); _reportCalls += 1; lock.unlock()
+        try await reportHandler()
+    }
+
+    func sendEventBatch(_ events: [ConnectorEvent]) async throws -> [UUID: EventDeliveryResult] {
+        lock.lock()
+        _batchCalls += 1
+        _inFlight += 1
+        _maxInFlight = max(_maxInFlight, _inFlight)
+        _sentBatches.append(events)
+        lock.unlock()
+        defer {
+            lock.lock(); _inFlight -= 1; lock.unlock()
+        }
+        return try await batchHandler(events)
+    }
+}
+
+enum EventFixtures {
+    static let sessionID = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
+
+    /// Neutral test event; not a real Screenshot Cleanup event.
+    static func event(_ index: Int, payload: JSONValue = .object(["n": .int(1)])) -> ConnectorEvent {
+        ConnectorEvent(eventID: UUID(uuidString: String(format: "00000000-0000-4000-8000-%012d", index))!,
+                       type: "test.neutral_event",
+                       occurredAt: Fixtures.pairedAt,
+                       sessionID: sessionID,
+                       payload: payload)
+    }
+
+    static func makeTemporaryStore() -> EventQueueStore {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EventQueueTests-\(UUID().uuidString)", isDirectory: true)
+        return EventQueueStore(directoryURL: directory)
+    }
+}
+
+/// Polls a main-actor condition (max ~2 s) without real-time sleeps in production code.
+@MainActor
+func waitUntil(_ condition: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async {
+    for _ in 0..<200 {
+        if condition() { return }
+        try? await Task.sleep(nanoseconds: 10_000_000)
+    }
+    XCTFail("Condition not met in time", file: file, line: line)
+}
+

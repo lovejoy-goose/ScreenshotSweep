@@ -1,49 +1,70 @@
 # Архитектура
 
-## Текущее состояние (после KC-004)
+## Текущее состояние (после KC-005)
 
-Один application target `KatanaConnector` (Bundle ID `app.katana.connector`) и unit-test target `KatanaConnectorTests`, iOS 16+, SwiftUI, проект генерируется XcodeGen из `project.yml`. Модули — папки (D-013).
+Один application target `KatanaConnector` (Bundle ID `app.katana.connector`) и unit-test target `KatanaConnectorTests`, iOS 16+, SwiftUI, проект генерируется XcodeGen из `project.yml`. Модули — папки (D-013), границы фреймворков — D-024.
 
 ```
 Sources/
 ├── App/
-│   ├── KatanaConnectorApp.swift      @main: SweepStore, PairingCoordinator, CapabilityRegistry
-│   └── RootView.swift                NavigationStack, AppRoute (.screenshotCleanup, .pairing)
-├── Core/                             Foundation/Security/Combine; без UI, PhotoKit, AVFoundation (D-022)
-│   ├── Capabilities/                 CapabilityID, модели состояния, CapabilityRegistry
-│   ├── Connector/ConnectorModels.swift   ConnectorConnectionState, ConnectorDeviceSummary, ConnectorJSON
+│   ├── KatanaConnectorApp.swift      @main: собирает SweepStore, PairingCoordinator, EventDeliveryCoordinator; scenePhase → appBecameActive
+│   └── RootView.swift                NavigationStack, AppRoute; pairing connected → delivery.pairingDidConnect
+├── Core/
+│   ├── Capabilities/                 CapabilityID, модели состояния, CapabilityRegistry          (Foundation)
+│   ├── Connector/ConnectorModels.swift   ConnectorConnectionState, ConnectorDeviceSummary, ConnectorJSON (Foundation)
 │   ├── Pairing/
-│   │   ├── PairingModels.swift       PairingCode/DeviceToken (redacted), PairingSecurityPolicy, payload, request/response, PairedDevice, PairingCredentials
-│   │   ├── PairingPayloadParser.swift   QR v1 → PairingPayload
-│   │   ├── PairingClient.swift       протокол + URLSessionPairingClient (POST …/pairing/complete)
-│   │   └── PairingCoordinator.swift  @MainActor ObservableObject: unpaired → reviewing → pairing → connected/failed
-│   └── Security/
-│       ├── SecureTokenStoring.swift  протокол хранилища credentials
-│       └── KeychainTokenStore.swift  Security framework, один generic-password item
+│   │   ├── PairingModels.swift       секреты (redacted), policy, payload, request/response, PairingCredentials(+requires_repair) (Foundation)
+│   │   ├── PairingPayloadParser.swift   QR v1                                               (Foundation)
+│   │   ├── PairingClient.swift       POST …/pairing/complete                                 (Foundation)
+│   │   └── PairingCoordinator.swift  unpaired / requiresRepair / reviewing / pairing / connected / failed (Combine)
+│   ├── Security/
+│   │   ├── SecureTokenStoring.swift  протокол хранилища                                      (Foundation)
+│   │   └── KeychainTokenStore.swift  единственное место с Security
+│   ├── API/
+│   │   ├── ConnectorTransport.swift  URLSession: ephemeral, без редиректов, ≤ 64 KiB         (Foundation)
+│   │   ├── ConnectorAPIError.swift   классификация статусов                                  (Foundation)
+│   │   ├── ConnectorAPIModels.swift  check / capability report / event batch, строгая проверка results (Foundation)
+│   │   └── ConnectorAPIClient.swift  протокол ConnectorAPI + Bearer-клиент                   (Foundation)
+│   └── Events/
+│       ├── ConnectorEvent.swift      envelope + JSONValue, описания без payload               (Foundation)
+│       ├── EventQueueStore.swift     JSON-файл, атомарная запись, quarantine                  (Foundation)
+│       ├── EventQueue.swift          actor: FIFO, дедупликация, batch ≤ 20, лимиты, rejected   (Foundation)
+│       └── EventDeliveryCoordinator.swift  single-flight flush, backoff, 401, статус для UI     (Combine)
 ├── Features/
-│   ├── Dashboard/DashboardView.swift     подключение (connect / «Отключить на этом iPhone»), функции, возможности
-│   ├── Pairing/
-│   │   ├── PairingView.swift         объяснение → камера по кнопке → сканер → подтверждение → результат
-│   │   ├── QRScannerView.swift       AVFoundation, первый QR → камера останавливается
-│   │   └── PairingConfirmationView.swift  хост, имя устройства, предупреждение, «Подключить»/«Отмена»
-│   └── ScreenshotCleanup/            SweepStore, ScreenshotCleanupViews
-└── Shared/MessageView.swift          общий экран-сообщение (Pairing и Screenshot Cleanup)
-Tests/KatanaConnectorTests/           XCTest без host app; mock URLProtocol, in-memory token store
+│   ├── Dashboard/DashboardView.swift     подключение / повторное подключение, синхронизация, функции, возможности
+│   ├── Pairing/                      PairingView, QRScannerView, PairingConfirmationView (предупреждение о замене)
+│   └── ScreenshotCleanup/            SweepStore, ScreenshotCleanupViews (без изменений)
+└── Shared/MessageView.swift
+Tests/KatanaConnectorTests/           XCTest без host app; mock URLProtocol/ConnectorAPI, in-memory token store, временные каталоги
 ```
 
-### Pairing (D-019…D-021)
+### Доставка событий (D-025…D-028)
 
 ```
-Dashboard «Подключить Katana» → PairingView (объяснение)
+Feature (с KC-006) → EventDeliveryCoordinator.enqueue → EventQueue (actor) → event-queue.json (atomic)
+                                  │
+     launch / foreground / новое событие / «Синхронизировать»
+                                  ▼
+       requestFlush (single-flight) → nextBatch(≤20) → ConnectorAPI.sendEventBatch
+                                  │                       │ Keychain → Bearer → HTTPS → events/batch
+                                  ▼                       ▼
+       apply(results): accepted/duplicate → удалить; rejected → журнал без payload; нет результата → остаётся
+       transport/429/5xx → backoff (≤ 5 попыток, ≤ 60 с, jitter) ; 401 → requiresRepair → PairingCoordinator.markRequiresRepair
+```
+
+### Pairing (D-019…D-021, D-023)
+
+```
+Dashboard «Подключить Katana» (или «Подключить Katana заново» после 401) → PairingView (объяснение)
   → «Сканировать QR» → AVCaptureDevice.requestAccess (только здесь) → QRScannerView
   → PairingCoordinator.handleScannedCode → PairingPayloadParser (схема, версия, HTTPS, код)
-  → PairingConfirmationView: хост + имя устройства → «Подключить»
+  → PairingConfirmationView: хост + имя устройства (+ предупреждение о замене) → «Подключить»
   → PairingCoordinator.confirm → PairingClient.completePairing (один раз, без редиректов)
   → SecureTokenStoring.save(PairingCredentials) → status .connected(PairedDevice)
-Запуск: PairingCoordinator.init → store.load(): есть → connected; нет → unpaired; ошибка → unpaired + notice
+Запуск: store.load(): есть → connected; есть с requires_repair → requiresRepair; нет → unpaired; ошибка → unpaired + notice
 ```
 
-Публикуется только несекретное состояние (`Status`, `Notice`, `PairedDevice`). Код живёт в памяти координатора до однократной отправки; токен идёт из ответа прямо в хранилище.
+Публикуется только несекретное состояние. Код живёт в памяти координатора до однократной отправки; токен идёт из ответа прямо в Keychain и читается API-клиентом только перед запросом.
 
 ### Capability model (D-016, D-017)
 
@@ -86,7 +107,7 @@ Dashboard показывает итоговый статус, выведенны
 | Модуль | Ответственность | Зависит от |
 |---|---|---|
 | `App` | Точка входа, навигация, композиция зависимостей | все |
-| `ConnectorCore` (`Sources/Core`) | Есть: capability-модели, `CapabilityRegistry`, connector-модели, pairing (parser, client, coordinator), secure storage. Будут: `ConnectorEvent`, протоколы сервисов | — |
+| `ConnectorCore` (`Sources/Core`) | Есть: capabilities, connector-модели, pairing, secure storage, API client, event queue и доставка | — |
 | `Pairing` | Разбор QR-payload, обмен pairing-кода на device token, revoke | `ConnectorCore`, `APIClient`, `Keychain` |
 | `Keychain` | Обёртка над Security framework для device token | — |
 | `EventQueue` | Persistent-очередь событий: запись до отправки, повтор, дедупликация по `event_id` | `ConnectorCore` |
@@ -98,7 +119,7 @@ Dashboard показывает итоговый статус, выведенны
 Правила зависимостей:
 
 - Функции (`Features/*`) не знают про `APIClient` и сеть — они только кладут события в очередь через протокол.
-- `Sources/Core` не импортирует UIKit/SwiftUI/Photos/AVFoundation (D-022).
+- Границы фреймворков в `Sources/Core` — D-024.
 - PhotoKit используется только в `Features/ScreenshotCleanup`.
 - Нет сторонних зависимостей. Модули — папки `Sources/App`, `Sources/Features/<Feature>`, `Sources/Shared` (только реально общее); новые папки создаются вместе с кодом, без пустых заготовок.
 

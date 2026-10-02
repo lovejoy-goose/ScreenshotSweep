@@ -1,6 +1,6 @@
-# Katana API — концептуальный контракт
+# Katana API — контракт Connector
 
-> Статус: **черновик**. Описаны операции, поля и семантика. Окончательные URL, методы, коды ответов и формат ошибок согласуются с бэкендом Katana и фиксируются в KC-004/KC-005. Все адреса ниже — плейсхолдеры.
+> Статус: pairing (v1) проверен end-to-end; маршруты 3–5 зафиксированы в KC-005 и ждут проверки с реальным Katana API. Все адреса ниже — плейсхолдеры.
 
 ## Общие правила
 
@@ -87,15 +87,40 @@ Accept: application/json
 | 408, 429, 5xx, сетевая ошибка, timeout (15 с) | `transport` | сервер недоступен, можно повторить с новым QR |
 | 3xx, 404, прочие | `invalidResponse` | по этому адресу нет pairing endpoint |
 
-Тело ошибки клиентом пока не разбирается. Не реализовано на сервере — нужен endpoint в Katana (KC-004 in review).
+Тело ошибки клиентом пока не разбирается. Реализовано в Katana и проверено end-to-end 2026-10-02 (сервер хранит только SHA-256-хеш токена).
 
 ### 2a. Revoke (локальный, KC-004)
 
 «Отключить на этом iPhone» удаляет credentials из Keychain. Серверный revoke пока не вызывается (см. п. 6).
 
-### 3. Capability report (Connector → API)
+### Авторизованные запросы (KC-005)
 
-Сообщает, какие функции есть на устройстве и в каком они состоянии. Отправляется после pairing и при изменении статусов.
+Общие правила для маршрутов 3–5:
+
+- Адрес: `{base_url}` из сохранённого подключения (Keychain), только HTTPS по `PairingSecurityPolicy`; редиректы не выполняются.
+- Заголовки: `Authorization: Bearer <device_token>`, `Accept: application/json`; для POST дополнительно `Content-Type: application/json`. Токен никогда не передаётся в query.
+- Токен читается из Keychain непосредственно перед каждым запросом. Подключение, помеченное после 401 (`requires_repair`), не используется — запрос не отправляется.
+- Timeout запроса 15 с, ответ не больше 64 KiB, даты ISO 8601 (дробные секунды допустимы).
+
+Классификация ответов клиентом:
+
+| HTTP | Ошибка | Поведение Connector |
+|---|---|---|
+| 2xx | — | успех |
+| 401 | `unauthorized` | сеть больше не используется, credentials помечаются `requires_repair`, очередь сохраняется, UI: «Подключите Katana заново» |
+| 408, сетевая ошибка, timeout | `transport` | повтор с backoff |
+| 429 | `rateLimited` | повтор с backoff |
+| 5xx | `serverError` | повтор с backoff |
+| прочие 4xx | `rejected` | без повторов до следующего триггера; события не удаляются |
+| 3xx, иные коды, битое/слишком большое тело | `invalidResponse` | без повторов до следующего триггера; события не удаляются |
+
+### 3. Capability report
+
+```
+POST {base_url}/api/connector/capabilities/report
+```
+
+Отправляется автоматически один раз за запуск приложения (при старте или возвращении в foreground) и по кнопке «Синхронизировать». Реальных probes и запросов разрешений нет: отправляются текущие значения `CapabilityRegistry`. Тело ответа не разбирается; успешный ответ обновляет локальное «последняя синхронизация».
 
 ```json
 {
@@ -105,11 +130,10 @@ Accept: application/json
     "display_name": "iPhone",
     "app_version": "0.1.0",
     "system_version": "18.0",
-    "connection_state": "connected",
-    "last_seen_at": "2026-10-02T12:00:00Z"
+    "connection_state": "connected"
   },
   "capabilities": [
-    { "id": "photos", "availability": "available", "authorization": "granted", "probe_state": "passed", "checked_at": "2026-10-02T11:59:00Z" },
+    { "id": "photos", "availability": "available", "authorization": "unknown", "probe_state": "not_run" },
     { "id": "health_kit", "availability": "missing_entitlement", "authorization": "unknown", "probe_state": "not_run" }
   ]
 }
@@ -123,47 +147,75 @@ Accept: application/json
 | `availability` | `available`, `planned`, `missing_entitlement`, `unsupported_device` |
 | `authorization` | `unknown`, `not_required`, `not_requested`, `granted`, `limited`, `denied`, `restricted` |
 | `probe_state` | `not_run`, `passed`, `failed` |
-| `checked_at` | время последней проверки, опционально |
-| `detail` | короткий технический код/пояснение без пользовательских данных, опционально |
+| `checked_at` | время последней проверки, опускается, если нет |
+| `detail` | короткий технический код без пользовательских данных, опускается, если нет |
 
-`device` — `ConnectorDeviceSummary`; `connection_state`: `unpaired`, `pairing`, `connected`, `revoked`, `error`. Функции Connector (например, Screenshot Cleanup) — не capabilities; они сообщают о себе событиями.
+`device` — `ConnectorDeviceSummary` (`last_seen_at` опускается, если нет); `connection_state`: `unpaired`, `pairing`, `connected`, `revoked`, `error`. Функции Connector (например, Screenshot Cleanup) — не capabilities; они сообщают о себе событиями.
 
-### 4. Event batch (Connector → API)
+### 4. Event batch
 
-Пакет событий из persistent-очереди.
+```
+POST {base_url}/api/connector/events/batch
+```
+
+Запрос — до 20 событий из persistent-очереди, старые первыми:
 
 ```json
 {
   "events": [
     {
-      "event_id": "UUID",
+      "event_id": "00000000-0000-4000-8000-000000000001",
       "type": "screenshots.cleanup.completed",
       "occurred_at": "2026-10-02T12:10:00Z",
-      "session_id": "UUID",
-      "payload": { }
+      "session_id": "11111111-2222-3333-4444-555555555555",
+      "payload": {}
     }
   ]
 }
 ```
 
-Ответ — статус по каждому событию:
+- UUID отправляются в нижнем регистре; `type` — `[a-z0-9._]`, до 100 символов; событие в JSON не больше 16 KiB; `payload` — произвольный JSON-объект/значение.
+- Повторная отправка — те же `event_id` и `payload`.
 
-| Статус | Действие клиента |
+Ответ:
+
+```json
+{
+  "results": [
+    { "event_id": "00000000-0000-4000-8000-000000000001", "status": "accepted" },
+    { "event_id": "…", "status": "duplicate" },
+    { "event_id": "…", "status": "rejected", "code": "unsupported_type" }
+  ]
+}
+```
+
+| `status` | Действие Connector |
 |---|---|
-| `accepted` | Удалить из очереди |
-| `duplicate` | Событие с этим `event_id` уже было принято — удалить из очереди |
-| `rejected` | Невалидно, ретраить бессмысленно — удалить/пометить, залогировать только код |
+| `accepted` | удалить из очереди |
+| `duplicate` | уже принято ранее — удалить из очереди |
+| `rejected` | окончательно отклонено — удалить из активной очереди, сохранить только метаданные (`event_id`, `type`, `code` ≤ 64 символа, время) в журнале отклонённых (до 100 записей), без payload (D-026) |
+| нет результата | событие остаётся в очереди |
 
-Сетевая ошибка, 5xx, 408, 429 → весь пакет остаётся в очереди, повтор с backoff. 401 → токен недействителен, pairing помечается как «нужно перепривязать», очередь сохраняется.
+Строгая проверка: результат с `event_id`, которого не было в запросе, повтор одного `event_id` или неизвестный `status` → весь ответ `invalidResponse`, очередь не меняется.
 
-### 5. Check connection (Connector → API)
+### 5. Check connection
 
-Лёгкий авторизованный запрос для экрана «Статус подключения»: токен валиден, сервер доступен. Ответ: признак успеха, серверное время (для диагностики расхождения часов), опционально `account_label`.
+```
+GET {base_url}/api/connector/connection/check
+```
+
+Выполняется только по кнопке «Проверить соединение».
+
+```json
+{ "ok": true, "server_time": "2026-10-02T12:00:00Z", "account_label": "optional" }
+```
+
+`ok` должен быть `true`, иначе `invalidResponse`. `account_label` опционален и показывается на Dashboard.
 
 ### 6. Revoke
 
-- **С устройства:** пользователь нажимает «Отвязать» → запрос на отзыв токена → токен удаляется из Keychain **независимо от ответа сервера**. Неотправленные события: политика (отправить перед отзывом / удалить) — TBD в KC-004/KC-005.
-- **С сервера/PWA:** токен отзывается на сервере; Connector узнаёт об этом по 401 и переходит в состояние «не привязан».
+- **С устройства:** «Отключить на этом iPhone» удаляет credentials из Keychain; серверный revoke пока не вызывается. Очередь событий не удаляется.
+- **С сервера/PWA:** токен отзывается на сервере; Connector узнаёт об этом по 401 и переходит в состояние «Требуется повторное подключение» (credentials помечаются и больше не используются, очередь сохраняется).
 
 ## События
 

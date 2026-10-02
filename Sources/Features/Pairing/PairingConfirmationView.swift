@@ -3,6 +3,8 @@ import SwiftUI
 /// Shown after a valid QR scan and before the one-time code is sent.
 struct PairingConfirmationView: View {
     let host: String
+    /// Host of the current (rejected) connection that confirming will replace.
+    let replacingHost: String?
     let onConfirm: (String) -> Void
     let onCancel: () -> Void
 
@@ -32,6 +34,14 @@ struct PairingConfirmationView: View {
                 Text("Имя этого iPhone в Katana")
             } footer: {
                 Text("До \(DeviceDisplayName.maxLength) символов. Пустое имя заменится на «\(DeviceDisplayName.fallback)».")
+            }
+
+            if let replacingHost {
+                Section {
+                    Label("Текущее подключение к \(replacingHost) будет заменено. Неотправленные события останутся на этом iPhone и будут отправлены в новое подключение.",
+                          systemImage: "arrow.triangle.2.circlepath")
+                        .font(.footnote)
+                }
             }
 
             Section {

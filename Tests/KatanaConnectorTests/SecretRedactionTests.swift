@@ -38,6 +38,6 @@ final class SecretRedactionTests: XCTestCase {
         let data = try ConnectorJSON.makeEncoder().encode(Fixtures.credentials)
         XCTAssertEqual(try ConnectorJSON.makeDecoder().decode(PairingCredentials.self, from: data), Fixtures.credentials)
         let json = String(decoding: data, as: UTF8.self)
-        XCTAssertEqual(json, #"{"device":{"base_url":"https:\/\/katana.example","device_id":"dev_fixture","display_name":"Kitchen iPhone","paired_at":"2026-09-21T14:13:20Z"},"device_token":"tok_fixture_secret_value"}"#)
+        XCTAssertEqual(json, #"{"device":{"base_url":"https:\/\/katana.example","device_id":"dev_fixture","display_name":"Kitchen iPhone","paired_at":"2026-09-21T14:13:20Z"},"device_token":"tok_fixture_secret_value","requires_repair":false}"#)
     }
 }

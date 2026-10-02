@@ -21,7 +21,8 @@
 ## Безопасность и приватность
 
 - Никаких секретов, реальных токенов, production URL и production credentials в коде, конфигурации, тестах, документации и истории git. Только явные плейсхолдеры (`<API_BASE_URL>`, `example.invalid`).
-- Device token хранится только в Keychain (`KeychainTokenStore`). Не в `UserDefaults`, не в файлах, не в логах, не в `@Published`, не в UI. Секреты передаются только в обёртках `DeviceToken`/`PairingCode` с редактированным описанием.
+- Device token хранится только в Keychain (`KeychainTokenStore`) и читается API-клиентом только перед запросом. Не в `UserDefaults`, не в файлах (включая очередь событий), не в логах, не в `@Published`, не в UI, не в query. Секреты передаются только в обёртках `DeviceToken`/`PairingCode` с редактированным описанием; описания событий не содержат payload.
+- Очередь событий не удаляется ни при 401, ни при отключении, ни при повторном pairing без отдельного подтверждения пользователя.
 - Не логировать содержимое фотографий, `PHAsset.localIdentifier`, имена файлов, даты отдельных снимков, EXIF/геоданные, токены, pairing-коды, тела запросов с чувствительными данными. Допустимы только агрегаты (счётчики) и коды ошибок.
 - Фотографии и их производные (превью, хэши, метаданные) **никогда** не отправляются в Katana. Сервер получает только итоги cleanup-сессии (см. `docs/API.md`).
 - Всё, что приходит через custom URL scheme, QR-код или ответ сервера, — недоверенный ввод: валидировать, не выполнять разрушительных действий без подтверждения в UI.
@@ -59,7 +60,7 @@
 
 - Генерация проекта: XcodeGen (`project.yml`), `*.xcodeproj` не коммитится.
 - CI: `.github/workflows/build-ios.yml` — unsigned-сборка `KatanaConnector.ipa` (artifact `katana-connector-unsigned-ipa`).
-- Структура: `Sources/App`, `Sources/Core` (Foundation/Security/Combine; без UI, PhotoKit, AVFoundation — D-022), `Sources/Features/<Feature>`, `Sources/Shared` (только реально общее), `Tests/KatanaConnectorTests`. Без локальных SPM-пакетов и пустых заготовок (D-013, D-018).
+- Структура: `Sources/App`, `Sources/Core` (модели/парсеры/wire — только Foundation; Security — только Keychain; Combine — только координаторы — D-024), `Sources/Features/<Feature>`, `Sources/Shared` (только реально общее), `Tests/KatanaConnectorTests`. Без локальных SPM-пакетов и пустых заготовок (D-013, D-018).
 - Wire values моделей (snake_case) после релиза не меняются; любое изменение — только вместе с тестами и записью в `DECISIONS.md`.
 - Минимальная iOS: 16.0. Язык: Swift 5, SwiftUI. Только фреймворки Apple.
 - Язык UI и документации — русский; идентификаторы в коде и API — английский.

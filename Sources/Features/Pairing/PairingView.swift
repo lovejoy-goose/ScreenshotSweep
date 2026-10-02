@@ -24,6 +24,7 @@ struct PairingView: View {
         case .reviewing(let host):
             PairingConfirmationView(
                 host: host,
+                replacingHost: pairing.deviceToReplace?.host,
                 onConfirm: { name in Task { await pairing.confirm(displayName: name) } },
                 onCancel: {
                     pairing.cancel()
@@ -54,7 +55,7 @@ struct PairingView: View {
                     startScanning()
                 }
             )
-        case .unpaired:
+        case .unpaired, .requiresRepair:
             unpairedContent
         }
     }

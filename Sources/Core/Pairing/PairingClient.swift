@@ -87,13 +87,3 @@ struct URLSessionPairingClient: PairingClient {
         return response
     }
 }
-
-/// The code must reach only the host the user confirmed, so redirects are never followed.
-private final class RejectRedirectsDelegate: NSObject, URLSessionTaskDelegate {
-    func urlSession(_ session: URLSession, task: URLSessionTask,
-                    willPerformHTTPRedirection response: HTTPURLResponse,
-                    newRequest request: URLRequest,
-                    completionHandler: @escaping (URLRequest?) -> Void) {
-        completionHandler(nil)
-    }
-}
