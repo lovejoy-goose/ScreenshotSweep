@@ -1,6 +1,6 @@
 # CLAUDE.md — правила работы в репозитории
 
-Репозиторий: ScreenshotSweep → превращается в **Katana Connector** (одно iOS-приложение).
+Приложение: **Katana Connector** (`app.katana.connector`, target `KatanaConnector`), исходно — ScreenshotSweep. Рабочая ветка v0.1: `feature/katana-connector-v0.1`, одна KC-задача = один коммит.
 Продукт и архитектура описаны в `docs/`. Этот файл — постоянные правила, которые действуют в каждой сессии.
 
 ## Перед изменениями
@@ -31,7 +31,7 @@
 - Системные разрешения запрашиваются **только после явного действия пользователя** (нажатие кнопки, относящейся к функции), по одному, в момент, когда функция реально нужна.
 - Никогда не запрашивать несколько разрешений сразу и не запрашивать их на старте приложения.
 - Каждое новое разрешение = новый `INFOPLIST_KEY_*Usage Description` в `project.yml` + запись в `docs/DECISIONS.md`.
-- Известное отклонение: текущий Screenshot Sweep запрашивает доступ к фото при запуске (`RootView.onAppear`). Исправляется только в рамках задачи, где это явно указано (см. KC-006), с согласия пользователя.
+- Dashboard не запрашивает разрешений. Доступ к фото — только при входе в Screenshot Cleanup (D-014).
 
 ## Безопасная модель удаления (PhotoKit)
 
@@ -58,6 +58,7 @@
 ## Проект
 
 - Генерация проекта: XcodeGen (`project.yml`), `*.xcodeproj` не коммитится.
-- CI: `.github/workflows/build-ios.yml` — unsigned-сборка `.ipa`.
+- CI: `.github/workflows/build-ios.yml` — unsigned-сборка `KatanaConnector.ipa` (artifact `katana-connector-unsigned-ipa`).
+- Структура: `Sources/App`, `Sources/Features/<Feature>`, `Sources/Shared` (только реально общее). Без локальных SPM-пакетов и пустых заготовок (D-013).
 - Минимальная iOS: 16.0. Язык: Swift 5, SwiftUI. Только фреймворки Apple.
 - Язык UI и документации — русский; идентификаторы в коде и API — английский.

@@ -2,12 +2,12 @@
 
 Правила (см. `CLAUDE.md`): брать одну задачу; не переходить к следующей самостоятельно; после выполнения — обновить статус и acceptance criteria здесь.
 
-Статусы: `planned` → `in progress` → `done` (или `blocked`).
+Статусы: `planned` → `in progress` → `in review` (код готов, ждёт CI/устройства) → `done` (или `blocked`).
 
 | ID | Задача | Статус | Зависит от |
 |---|---|---|---|
 | KC-001 | Repository foundation | **done** | — |
-| KC-002 | Rename and modular structure | planned | KC-001 |
+| KC-002 | Rename and modular structure | **in review** (код готов; ждёт CI и проверки на устройстве) | KC-001 |
 | KC-003 | Connector Core models | planned | KC-002 |
 | KC-004 | QR pairing and Keychain | planned | KC-003 |
 | KC-005 | Persistent event queue and API client | planned | KC-003, KC-004 |
@@ -31,23 +31,32 @@
   - [x] Зафиксированы: один Bundle ID, одно приложение, Screenshot Cleanup первой функцией, Capability Lab как независимые probes, фото не загружаются, только итоги сессии, persistent и идемпотентная очередь, разрешения не все сразу, deferred-список.
   - [x] API описан концептуально, без окончательных URL.
   - [x] Swift-файлы, `project.yml`, Bundle ID и поведение приложения не изменены.
-- **Заметки:** обнаружено отклонение — доступ к фото запрашивается при старте (`RootView.onAppear`); перенесено в KC-006.
+- **Заметки:** обнаружено отклонение — доступ к фото запрашивается при старте (`RootView.onAppear`); устранено в KC-002 (D-014).
 
 ## KC-002 Rename and modular structure
 
-- **Статус:** planned
-- **Цель:** превратить проект в Katana Connector структурно, не меняя поведения Screenshot Cleanup.
+- **Статус:** in review — код и документация готовы; ждёт зелёного CI и ручной проверки на устройстве, после чего переводится в done
+- **Цель:** превратить проект в Katana Connector структурно: переименование, папки-модули, стартовый Dashboard; поведение Screenshot Cleanup не меняется.
 - **Scope:**
-  - выбрать и зафиксировать окончательный Bundle ID (Q-1) и display name; обновить `project.yml`, CI (имя scheme/артефакта), `README.md`;
-  - выбрать форму модульности (Q-2) и разложить код: `App/`, `Features/ScreenshotCleanup/` (текущие `SweepStore` и views), заготовки папок/модулей без логики;
-  - главный экран-оболочка Connector со входом в Screenshot Cleanup — только если согласовано (иначе приложение сразу открывает Screenshot Cleanup как сейчас).
-- **Вне scope:** сеть, pairing, новые разрешения, новые функции.
+  - Bundle ID `app.katana.connector`, display name «Katana Connector», target/scheme/product `KatanaConnector`, `@main` `KatanaConnectorApp` (D-012);
+  - один target, модули — папки `App/`, `Features/Dashboard/`, `Features/ScreenshotCleanup/` (D-013);
+  - Dashboard: «Katana не подключена», «Разобрать скриншоты», техблок Connector Core / Capability Lab — planned;
+  - PhotoKit запрашивается только при входе в Screenshot Cleanup (D-014); кнопка «Главная» для возврата;
+  - CI: `KatanaConnector.xcodeproj`, scheme `KatanaConnector`, `KatanaConnector.ipa`, artifact `katana-connector-unsigned-ipa`;
+  - README и документация.
+- **Вне scope:** сеть, pairing, новые разрешения, новые функции, изменения `SweepStore` и модели удаления.
+- **Документы:** `DECISIONS.md` (D-012…D-015), `ARCHITECTURE.md`, `PRODUCT.md`, `TESTING.md`, `README.md`.
 - **Зависимости:** KC-001.
 - **Acceptance criteria:**
-  - [ ] Bundle ID выбран, записан в `DECISIONS.md` (D-002) и больше не планируется к изменению.
-  - [ ] Проект генерируется XcodeGen и собирается в CI; артефакт `.ipa` создаётся.
-  - [ ] Ручной регрессионный чек-лист из `TESTING.md` проходит без отличий от текущего поведения.
-  - [ ] Логика `SweepStore` не изменена (только перемещение/переименование файлов и типов при необходимости).
+  - [x] Bundle ID выбран (`app.katana.connector`), записан в `DECISIONS.md` (D-012) и больше не планируется к изменению.
+  - [x] Структура `Sources/` соответствует D-013, без пустых заготовок и SPM-пакетов.
+  - [x] Dashboard не запрашивает разрешений и не обращается к сети; фиктивных подключений и токенов нет.
+  - [x] PhotoKit запрашивается только при входе в Screenshot Cleanup.
+  - [x] Логика `SweepStore` и модель удаления не изменены (файл только перемещён).
+  - [x] `rg "ScreenshotSweep\|local\.sweep"` — только исторические упоминания и имя GitHub-репозитория.
+  - [ ] Проект генерируется XcodeGen и собирается в CI; артефакт `KatanaConnector.ipa` создаётся — проверяется запуском workflow на ветке (локально нет XcodeGen/Xcode).
+  - [ ] Ручные чек-листы Dashboard и Screenshot Cleanup из `TESTING.md` — на устройстве после установки `.ipa`.
+- **Заметки:** при входе в Screenshot Cleanup стандартная кнопка «Назад» скрыта и заменена на «Главная» (кнопка «Отменить» остаётся рядом); жест свайпа назад из-за этого недоступен. Состояние разбора живёт на уровне приложения и сохраняется при возврате на Dashboard.
 
 ## KC-003 Connector Core models
 
@@ -96,7 +105,7 @@
 
 - **Статус:** planned
 - **Цель:** сделать Screenshot Cleanup первой законченной функцией Connector.
-- **Scope:** решение Q-6 (семантика сессии); `session_id`, `started_at`/`completed_at`; подсчёт `viewed`/`kept`/`deleted` (deleted — только после успешного `performChanges`); запись `screenshots.cleanup.completed` в очередь; перенос запроса доступа к фото со старта на кнопку «Начать» (меняет UX — подтвердить с пользователем).
+- **Scope:** решение Q-6 (семантика сессии); `session_id`, `started_at`/`completed_at`; подсчёт `viewed`/`kept`/`deleted` (deleted — только после успешного `performChanges`); запись `screenshots.cleanup.completed` в очередь. (Перенос запроса доступа к фото со старта выполнен в KC-002, D-014.)
 - **Вне scope:** изменения модели удаления и подтверждений.
 - **Зависимости:** KC-005.
 - **Acceptance criteria:**
@@ -104,7 +113,7 @@
   - [ ] Payload содержит только поля из `API.md`; нет идентификаторов и метаданных фото.
   - [ ] Отмена в системном диалоге → `deleted` не увеличивается.
   - [ ] Регрессионный чек-лист `TESTING.md` проходит; модель удаления не изменена.
-  - [ ] Доступ к фото запрашивается только по явному действию (если согласовано).
+  - [ ] Доступ к фото по-прежнему запрашивается только при входе в функцию (D-014).
   - [ ] Без pairing функция работает локально; события копятся в очереди (или не создаются — по решению Q-6).
 
 ## KC-007 Custom URL scheme

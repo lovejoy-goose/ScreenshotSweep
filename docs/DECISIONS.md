@@ -70,14 +70,37 @@
 - **Статус:** accepted (KC-001); детали — KC-004
 - **Решение:** токен хранится в Keychain с доступностью `AfterFirstUnlockThisDeviceOnly`, без синхронизации в iCloud. Никогда не пишется в `UserDefaults`, файлы, логи, URL.
 
+## D-012 Bundle ID, имена и display name
+
+- **Статус:** accepted (KC-002); закрывает Q-1, уточняет D-002
+- **Решение:** Bundle ID — `app.katana.connector`; display name — «Katana Connector»; target, scheme, product и XcodeGen-проект — `KatanaConnector`; `@main` — `KatanaConnectorApp`; CI-артефакт — `KatanaConnector.ipa` в workflow artifact `katana-connector-unsigned-ipa`.
+- **Последствия:** iOS устанавливает Katana Connector как отдельное приложение рядом со старым ScreenshotSweep (`local.sweep.ScreenshotSweep`); данные не переносятся. Bundle ID больше не меняется (см. D-002). Имя GitHub-репозитория (`ScreenshotSweep`) пока не меняется.
+
+## D-013 Один application target, модули — папки
+
+- **Статус:** accepted (KC-002); закрывает Q-2
+- **Решение:** один application target `KatanaConnector`. Модули — папки внутри `Sources/`: `App/`, `Features/<Feature>/`, `Shared/` (только для реально общих компонентов). Локальные SPM-пакеты не создаются. Пустые placeholder-файлы и абстракции «на будущее» не создаются.
+- **Последствия:** границы модулей соблюдаются соглашением (см. `ARCHITECTURE.md`), а не компилятором. Пересмотр — отдельной записью.
+
+## D-014 Dashboard как стартовый экран; PhotoKit — только в Screenshot Cleanup
+
+- **Статус:** accepted (KC-002); закрывает известное отклонение из D-006
+- **Решение:** приложение открывается на Dashboard Connector. Screenshot Cleanup открывается отдельной кнопкой «Разобрать скриншоты». Dashboard не запрашивает разрешений и не обращается к сети. Доступ к фото запрашивается только при входе в Screenshot Cleanup (`ScreenshotCleanupView.onAppear` → `SweepStore.start()`); вход — явное действие пользователя.
+- **Последствия:** запрос PhotoKit при запуске устранён уже в KC-002, а не в KC-006. Состояние разбора (`SweepStore`) живёт на уровне приложения, поэтому выход на Dashboard и повторный вход не сбрасывают прогресс — как и раньше, до перезапуска приложения.
+
+## D-015 Ветка и коммиты v0.1
+
+- **Статус:** accepted (KC-002)
+- **Решение:** вся работа v0.1 ведётся в ветке `feature/katana-connector-v0.1`; каждая KC-задача — отдельный коммит; один Draft PR в `main`, который не сливается до выполнения критериев v0.1.
+
 ---
 
 ## Открытые вопросы
 
 | # | Вопрос | Когда решить |
 |---|---|---|
-| Q-1 | Окончательный Bundle ID и display name («Katana Connector»?) | KC-002 |
-| Q-2 | Модульность: папки в одном target или локальные SPM-пакеты | KC-002 |
+| Q-1 | ~~Окончательный Bundle ID и display name~~ — решено в D-012 | KC-002 |
+| Q-2 | ~~Модульность: папки или SPM-пакеты~~ — решено в D-013 | KC-002 |
 | Q-3 | Откуда берётся `<API_BASE_URL>`: из QR-payload (с проверкой по allowlist) или фиксирован в сборке по конфигурации | KC-004 |
 | Q-4 | Несколько аккаунтов/воркспейсов на одном устройстве | KC-004 |
 | Q-5 | Судьба неотправленных событий при revoke | KC-004/KC-005 |

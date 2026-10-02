@@ -1,28 +1,40 @@
 import Photos
 import SwiftUI
 
-struct RootView: View {
+/// Entry point of the Screenshot Cleanup feature. Photo access is requested here,
+/// when the user opens the feature from the Dashboard — never at app launch.
+struct ScreenshotCleanupView: View {
     @EnvironmentObject var store: SweepStore
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
-            content
-                .navigationTitle("Скриншоты")
-                .navigationBarTitleDisplayMode(.inline)
-        }
-        .onAppear { store.start() }
-        .alert("Ошибка", isPresented: Binding(
-            get: { store.errorMessage != nil },
-            set: { if !$0 { store.errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: { Text(store.errorMessage ?? "") }
-        .alert("Готово", isPresented: Binding(
-            get: { store.infoMessage != nil },
-            set: { if !$0 { store.infoMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: { Text(store.infoMessage ?? "") }
+        content
+            .navigationTitle("Скриншоты")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarBackButtonHidden(true)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button { dismiss() } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.backward")
+                            Text("Главная")
+                        }
+                    }
+                }
+            }
+            .onAppear { store.start() }
+            .alert("Ошибка", isPresented: Binding(
+                get: { store.errorMessage != nil },
+                set: { if !$0 { store.errorMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: { Text(store.errorMessage ?? "") }
+            .alert("Готово", isPresented: Binding(
+                get: { store.infoMessage != nil },
+                set: { if !$0 { store.infoMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: { Text(store.infoMessage ?? "") }
     }
 
     @ViewBuilder private var content: some View {
@@ -33,7 +45,7 @@ struct RootView: View {
             MessageView(
                 icon: "lock",
                 title: "Нет доступа к фото",
-                text: "Разрешите доступ в Настройках → ScreenshotSweep → Фото → «Все фото», чтобы увидеть скриншоты.",
+                text: "Разрешите доступ в Настройках → Katana Connector → Фото → «Все фото», чтобы увидеть скриншоты.",
                 buttonTitle: "Открыть Настройки",
                 action: store.openSettings
             )

@@ -1,24 +1,32 @@
 # Архитектура
 
-## Текущее состояние (на момент KC-001)
+## Текущее состояние (после KC-002)
 
-Один target `ScreenshotSweep`, iOS 16+, SwiftUI, проект генерируется XcodeGen из `project.yml`.
+Один application target `KatanaConnector` (Bundle ID `app.katana.connector`), iOS 16+, SwiftUI, проект генерируется XcodeGen из `project.yml`. Модули — папки (D-013).
 
-| Файл | Роль |
-|---|---|
-| `Sources/ScreenshotSweepApp.swift` | `@main`, создаёт `SweepStore` и `RootView` |
-| `Sources/SweepStore.swift` | Состояние разбора: авторизация PhotoKit, выборка скриншотов, решения, undo, удаление, наблюдение за изменениями медиатеки |
-| `Sources/Views.swift` | Все экраны: `RootView`, `SweepView`, `SwipeCard`, `ReviewView`, `AssetImage` и др. |
+```
+Sources/
+├── App/
+│   ├── KatanaConnectorApp.swift      @main, создаёт SweepStore, RootView
+│   └── RootView.swift                NavigationStack, AppRoute → экраны функций
+└── Features/
+    ├── Dashboard/
+    │   └── DashboardView.swift       стартовый экран: состояние подключения, функции, техблок
+    └── ScreenshotCleanup/
+        ├── SweepStore.swift          авторизация PhotoKit, выборка, решения, undo, удаление
+        └── ScreenshotCleanupViews.swift  ScreenshotCleanupView (вход в функцию), SweepView, ReviewView и др.
+```
+
+Навигация: `RootView` → `DashboardView` → `NavigationLink(value: AppRoute.screenshotCleanup)` → `ScreenshotCleanupView`. Возврат — кнопка «Главная» в навбаре.
 
 Ключевые свойства, которые нужно сохранить:
 
+- **Разрешения:** Dashboard не запрашивает разрешений. PhotoKit запрашивается только в `ScreenshotCleanupView.onAppear` → `SweepStore.start()`. Создание `SweepStore` (на уровне приложения) разрешений не запрашивает.
 - **Инвариант `SweepStore`:** `assets[0..<history.count]` — уже решённые, в порядке решений; `assets[history.count]` — текущий скриншот. `reload()` поддерживает инвариант при изменениях медиатеки.
 - **Единственная точка изменения медиатеки:** `deleteCandidates()` → `PHPhotoLibrary.performChanges` → `PHAssetChangeRequest.deleteAssets`.
 - **Подтверждения:** `ReviewView` → `confirmationDialog` → системный диалог iOS. `userCancelled` обрабатывается как «ничего не изменилось».
 - Выборка: `mediaType == image` и `mediaSubtypes` содержит `photoScreenshot` (с повторной проверкой в коде), сортировка по `creationDate` по возрастанию.
 - Каждые `batchSize = 30` решений открывается экран проверки (если есть кандидаты).
-
-Известное отклонение от целевых правил: доступ к фото запрашивается в `RootView.onAppear` (при старте), а не по явному действию. Исправление запланировано в KC-006.
 
 ## Целевая архитектура
 
@@ -34,7 +42,7 @@
                                      └──────────────────────────────────────────────────────────────────────┘
 ```
 
-### Модули (логические; физическая структура — KC-002)
+### Модули (логические; физически — папки в одном target, D-013)
 
 | Модуль | Ответственность | Зависит от |
 |---|---|---|
@@ -45,7 +53,7 @@
 | `EventQueue` | Persistent-очередь событий: запись до отправки, повтор, дедупликация по `event_id` | `ConnectorCore` |
 | `APIClient` | HTTPS-запросы к Katana API, авторизация токеном, разбор ответов | `ConnectorCore`, `Keychain` |
 | `URLRouter` | Разбор и валидация входящих URL, маршрутизация в функции | `ConnectorCore` |
-| `Features/ScreenshotCleanup` | Текущий ScreenshotSweep + формирование итогов сессии | `ConnectorCore`, `EventQueue` (через протокол) |
+| `Features/ScreenshotCleanup` | Исходный ScreenshotSweep (`SweepStore`, views) + формирование итогов сессии | `ConnectorCore`, `EventQueue` (через протокол) |
 | `Features/CapabilityLab` | Независимые probes, отчёт о capabilities | `ConnectorCore` |
 
 Правила зависимостей:
@@ -53,12 +61,12 @@
 - Функции (`Features/*`) не знают про `APIClient` и сеть — они только кладут события в очередь через протокол.
 - `ConnectorCore` не импортирует UIKit/Photos/SwiftUI.
 - PhotoKit используется только в `Features/ScreenshotCleanup`.
-- Нет сторонних зависимостей. Форма модульности (папки в одном target или локальные SPM-пакеты) решается в KC-002.
+- Нет сторонних зависимостей. Модули — папки `Sources/App`, `Sources/Features/<Feature>`, `Sources/Shared` (только реально общее); новые папки создаются вместе с кодом, без пустых заготовок.
 
 ### Поток данных Screenshot Cleanup
 
-1. Пользователь открывает Screenshot Cleanup (из главного экрана или по URL из PWA).
-2. Пользователь нажимает «Начать» → запрашивается доступ к фото (только сейчас).
+1. Пользователь открывает Screenshot Cleanup с Dashboard (позже — и по URL из PWA, KC-007).
+2. При входе в функцию запрашивается доступ к фото (только сейчас, не при запуске).
 3. Создаётся `session_id`, фиксируется `started_at`.
 4. Разбор как сейчас; удаление — только через `deleteCandidates()` с двойным подтверждением.
 5. По завершении сессии формируется событие `screenshots.cleanup.completed` (только счётчики и время) и **атомарно** пишется в очередь.
