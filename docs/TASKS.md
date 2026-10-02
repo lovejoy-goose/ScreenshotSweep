@@ -8,8 +8,8 @@
 |---|---|---|---|
 | KC-001 | Repository foundation | **done** | — |
 | KC-002 | Rename and modular structure | **done** | KC-001 |
-| KC-003 | Connector Core models and Capability Registry | **in review** (ждёт зелёного CI) | KC-002 |
-| KC-004 | QR pairing and Keychain | planned | KC-003 |
+| KC-003 | Connector Core models and Capability Registry | **done** | KC-002 |
+| KC-004 | QR pairing and Keychain | **in review** (ждёт e2e с реальным Katana endpoint) | KC-003 |
 | KC-005 | Persistent event queue and API client | planned | KC-003, KC-004 |
 | KC-006 | Screenshot Cleanup session integration | planned | KC-005 |
 | KC-007 | Custom URL scheme | planned | KC-002, KC-004 |
@@ -60,7 +60,7 @@
 
 ## KC-003 Connector Core models and Capability Registry
 
-- **Статус:** in review — код, тесты и документация готовы; переводится в done после зелёного CI
+- **Статус:** done
 - **Цель:** типизированное ядро Connector и реестр capabilities без pairing, сети, Keychain, persistent queue и новых запросов разрешений.
 - **Scope:**
   - `Sources/Core/Capabilities`: `CapabilityID` (18 id), `CapabilityAvailability`, `CapabilityAuthorization`, `CapabilityProbeState`, `CapabilityCategory`, `CapabilityDescriptor`, `CapabilitySnapshot`, `CapabilityRegistry`, `CapabilitySnapshotProviding`, `StaticCapabilitySnapshotProvider` (D-016, D-017);
@@ -71,28 +71,38 @@
 - **Документы:** `DECISIONS.md` (D-016…D-018), `ARCHITECTURE.md`, `API.md` (capability report), `TESTING.md`.
 - **Зависимости:** KC-002.
 - **Acceptance criteria:**
-  - [x] `Sources/Core` импортирует только Foundation.
+  - [x] `Sources/Core` импортирует только Foundation (на момент KC-003; см. D-022).
   - [x] Модели Codable, Equatable, Sendable; стабильные snake_case wire values.
   - [x] Registry — единственный упорядоченный каталог; не singleton; provider подменяем.
   - [x] Начальные состояния: photos available/unknown/not_run; healthKit и coreNFC missing_entitlement; остальные planned.
   - [x] Unit-тесты: уникальность id, каждый id ровно один раз, стабильный порядок, round-trip snapshot, точные wire values, начальные состояния, round-trip `ConnectorDeviceSummary`, подмена provider.
   - [x] Dashboard берёт данные из registry и не запрашивает разрешений.
-  - [ ] Тесты и device-сборка зелёные в CI (локально тулчейн не позволяет собрать: нет Xcode, CLT несовместим со своим SDK).
+  - [x] Тесты и device-сборка зелёные в CI: commit `215d3a2890a8368c1a83252863c3ba9d8dce69d4`, run https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37039526493 (11 unit-тестов, unsigned device build, `KatanaConnector.ipa`).
 
 ## KC-004 QR pairing and Keychain
 
-- **Статус:** planned
-- **Цель:** привязать устройство к Katana через QR и безопасно хранить device token.
-- **Scope:** экран «Подключение»; сканирование QR (AVFoundation) — разрешение камеры только по нажатию «Сканировать»; парсинг и валидация QR-payload; pairing complete через минимальный HTTPS-вызов; Keychain-обёртка; состояния «не привязан / привязан / нужно перепривязать»; revoke с устройства; решения Q-3, Q-4, Q-5.
-- **Вне scope:** очередь событий, отправка событий, URL scheme.
+- **Статус:** in review — клиентская часть, тесты и документация готовы; переводится в done после end-to-end pairing с реальным Katana endpoint
+- **Цель:** безопасная клиентская часть QR pairing: сканирование → проверка QR → подтверждение хоста и имени → обмен одноразового кода → device token в Keychain.
+- **Scope:**
+  - `Core/Pairing`: `PairingCode`/`DeviceToken` (redacted), `PairingSecurityPolicy`, `PairingPayloadParser` (QR v1), `PairingClient` + `URLSessionPairingClient`, `PairingCoordinator`;
+  - `Core/Security`: `SecureTokenStoring`, `KeychainTokenStore`;
+  - `Features/Pairing`: `PairingView`, `QRScannerView` (AVFoundation), `PairingConfirmationView`; `MessageView` перенесён в `Shared/`;
+  - Dashboard: «Подключить Katana» / connected-карточка / «Отключить на этом iPhone»;
+  - `NSCameraUsageDescription`; решения D-019…D-022; предварительный контракт v1 в `API.md`.
+- **Вне scope:** серверный revoke, event queue, capability probes, Screenshot Cleanup events, URL handler, OAuth, background tasks, серверные изменения.
+- **Документы:** `API.md` (QR v1, pairing complete), `DECISIONS.md` (D-019…D-022), `ARCHITECTURE.md`, `TESTING.md`.
 - **Зависимости:** KC-003.
 - **Acceptance criteria:**
-  - [ ] Токен хранится только в Keychain (`AfterFirstUnlockThisDeviceOnly`), не попадает в логи/UserDefaults/файлы.
-  - [ ] Pairing переживает перезапуск приложения.
-  - [ ] Revoke удаляет токен локально даже при ошибке сети.
-  - [ ] Невалидный, просроченный, повторно использованный код → понятная ошибка, без падения.
-  - [ ] Камера запрашивается только по действию пользователя; добавлен `NSCameraUsageDescription`.
-  - [ ] В репозитории нет реальных URL/токенов; тестирование — на mock или тестовом окружении.
+  - [x] QR v1 валидируется строго: схема/хост/версия, код, `base_url` (HTTPS, без credentials/query/fragment); ошибки различимы.
+  - [x] Хост и редактируемое имя устройства показываются до отправки кода; код отправляется один раз.
+  - [x] Токен хранится только в Keychain (`AfterFirstUnlockThisDeviceOnly`), не попадает в логи/UserDefaults/`@Published`/UI; описания моделей редактированы (тест).
+  - [x] Отсутствующий/нечитаемый Keychain → `unpaired` с предложением подключиться заново.
+  - [x] «Отключить на этом iPhone» удаляет локальные credentials после подтверждения; текст честно говорит, что сервер не уведомляется.
+  - [x] Камера запрашивается только по «Сканировать QR»; добавлен `NSCameraUsageDescription`; других entitlements нет.
+  - [x] Unit-тесты (mock URLProtocol, in-memory store) — 15 обязательных сценариев.
+  - [ ] Тесты и device-сборка зелёные в CI.
+  - [ ] End-to-end pairing с реальным Katana endpoint (нужен `POST /api/connector/pairing/complete` и QR из Katana).
+  - [ ] Ручной чек-лист Pairing из `TESTING.md` на устройстве.
 
 ## KC-005 Persistent event queue and API client
 

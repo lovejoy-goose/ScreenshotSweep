@@ -1,30 +1,49 @@
 # Архитектура
 
-## Текущее состояние (после KC-003)
+## Текущее состояние (после KC-004)
 
 Один application target `KatanaConnector` (Bundle ID `app.katana.connector`) и unit-test target `KatanaConnectorTests`, iOS 16+, SwiftUI, проект генерируется XcodeGen из `project.yml`. Модули — папки (D-013).
 
 ```
 Sources/
 ├── App/
-│   ├── KatanaConnectorApp.swift      @main, создаёт SweepStore и CapabilityRegistry, RootView
-│   └── RootView.swift                NavigationStack, AppRoute → экраны функций
-├── Core/                             только Foundation; без UI, PhotoKit, сети, Keychain
-│   ├── Capabilities/
-│   │   ├── CapabilityID.swift        18 стабильных идентификаторов (snake_case wire values)
-│   │   ├── CapabilityModels.swift    Availability / Authorization / ProbeState, Category, Descriptor, Snapshot
-│   │   └── CapabilityRegistry.swift  каталог + CapabilitySnapshotProviding + статический provider
-│   └── Connector/
-│       └── ConnectorModels.swift     ConnectorConnectionState, ConnectorDeviceSummary, ConnectorJSON
-└── Features/
-    ├── Dashboard/
-    │   └── DashboardView.swift       подключение, «Разобрать скриншоты», возможности из registry, техблок
-    └── ScreenshotCleanup/
-        ├── SweepStore.swift          авторизация PhotoKit, выборка, решения, undo, удаление
-        └── ScreenshotCleanupViews.swift  ScreenshotCleanupView (вход в функцию), SweepView, ReviewView и др.
-Tests/
-└── KatanaConnectorTests/             XCTest; компилирует Sources/Core напрямую, без host app (D-018)
+│   ├── KatanaConnectorApp.swift      @main: SweepStore, PairingCoordinator, CapabilityRegistry
+│   └── RootView.swift                NavigationStack, AppRoute (.screenshotCleanup, .pairing)
+├── Core/                             Foundation/Security/Combine; без UI, PhotoKit, AVFoundation (D-022)
+│   ├── Capabilities/                 CapabilityID, модели состояния, CapabilityRegistry
+│   ├── Connector/ConnectorModels.swift   ConnectorConnectionState, ConnectorDeviceSummary, ConnectorJSON
+│   ├── Pairing/
+│   │   ├── PairingModels.swift       PairingCode/DeviceToken (redacted), PairingSecurityPolicy, payload, request/response, PairedDevice, PairingCredentials
+│   │   ├── PairingPayloadParser.swift   QR v1 → PairingPayload
+│   │   ├── PairingClient.swift       протокол + URLSessionPairingClient (POST …/pairing/complete)
+│   │   └── PairingCoordinator.swift  @MainActor ObservableObject: unpaired → reviewing → pairing → connected/failed
+│   └── Security/
+│       ├── SecureTokenStoring.swift  протокол хранилища credentials
+│       └── KeychainTokenStore.swift  Security framework, один generic-password item
+├── Features/
+│   ├── Dashboard/DashboardView.swift     подключение (connect / «Отключить на этом iPhone»), функции, возможности
+│   ├── Pairing/
+│   │   ├── PairingView.swift         объяснение → камера по кнопке → сканер → подтверждение → результат
+│   │   ├── QRScannerView.swift       AVFoundation, первый QR → камера останавливается
+│   │   └── PairingConfirmationView.swift  хост, имя устройства, предупреждение, «Подключить»/«Отмена»
+│   └── ScreenshotCleanup/            SweepStore, ScreenshotCleanupViews
+└── Shared/MessageView.swift          общий экран-сообщение (Pairing и Screenshot Cleanup)
+Tests/KatanaConnectorTests/           XCTest без host app; mock URLProtocol, in-memory token store
 ```
+
+### Pairing (D-019…D-021)
+
+```
+Dashboard «Подключить Katana» → PairingView (объяснение)
+  → «Сканировать QR» → AVCaptureDevice.requestAccess (только здесь) → QRScannerView
+  → PairingCoordinator.handleScannedCode → PairingPayloadParser (схема, версия, HTTPS, код)
+  → PairingConfirmationView: хост + имя устройства → «Подключить»
+  → PairingCoordinator.confirm → PairingClient.completePairing (один раз, без редиректов)
+  → SecureTokenStoring.save(PairingCredentials) → status .connected(PairedDevice)
+Запуск: PairingCoordinator.init → store.load(): есть → connected; нет → unpaired; ошибка → unpaired + notice
+```
+
+Публикуется только несекретное состояние (`Status`, `Notice`, `PairedDevice`). Код живёт в памяти координатора до однократной отправки; токен идёт из ответа прямо в хранилище.
 
 ### Capability model (D-016, D-017)
 
@@ -67,7 +86,7 @@ Dashboard показывает итоговый статус, выведенны
 | Модуль | Ответственность | Зависит от |
 |---|---|---|
 | `App` | Точка входа, навигация, композиция зависимостей | все |
-| `ConnectorCore` (`Sources/Core`) | Есть: capability-модели, `CapabilityRegistry`, `ConnectorConnectionState`, `ConnectorDeviceSummary`. Будут: `ConnectorEvent`, протоколы сервисов | — |
+| `ConnectorCore` (`Sources/Core`) | Есть: capability-модели, `CapabilityRegistry`, connector-модели, pairing (parser, client, coordinator), secure storage. Будут: `ConnectorEvent`, протоколы сервисов | — |
 | `Pairing` | Разбор QR-payload, обмен pairing-кода на device token, revoke | `ConnectorCore`, `APIClient`, `Keychain` |
 | `Keychain` | Обёртка над Security framework для device token | — |
 | `EventQueue` | Persistent-очередь событий: запись до отправки, повтор, дедупликация по `event_id` | `ConnectorCore` |
@@ -79,7 +98,7 @@ Dashboard показывает итоговый статус, выведенны
 Правила зависимостей:
 
 - Функции (`Features/*`) не знают про `APIClient` и сеть — они только кладут события в очередь через протокол.
-- `ConnectorCore` не импортирует UIKit/Photos/SwiftUI.
+- `Sources/Core` не импортирует UIKit/SwiftUI/Photos/AVFoundation (D-022).
 - PhotoKit используется только в `Features/ScreenshotCleanup`.
 - Нет сторонних зависимостей. Модули — папки `Sources/App`, `Sources/Features/<Feature>`, `Sources/Shared` (только реально общее); новые папки создаются вместе с кодом, без пустых заготовок.
 

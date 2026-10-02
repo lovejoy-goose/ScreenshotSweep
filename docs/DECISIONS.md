@@ -117,6 +117,30 @@
 - **Решение:** target `KatanaConnectorTests` (XCTest, `bundle.unit-test`) компилирует `Sources/Core` напрямую вместе с тестами — без host application и без зависимости от UI. Тесты запускаются в CI на iOS Simulator до unsigned device-сборки; симулятор выбирается динамически (новейший iOS runtime, первый iPhone из `xcrun simctl list devices available`).
 - **Последствия:** `Sources/Core` обязан компилироваться без UIKit/SwiftUI/Photos. Тесты фич с UI/PhotoKit потребуют отдельного решения (host app).
 
+## D-019 Имя устройства задаёт пользователь
+
+- **Статус:** accepted (KC-004)
+- **Решение:** перед подтверждением pairing пользователь видит редактируемое поле «Имя этого iPhone в Katana», по умолчанию `iPhone`. Значение нормализуется: убираются управляющие символы и пробелы по краям, длина ≤ 40, пустое → `iPhone`. `UIDevice.name` не используется (с iOS 16 без entitlement возвращает общее имя и считается персональными данными).
+
+## D-020 Адрес Katana приходит в QR; только HTTPS
+
+- **Статус:** accepted (KC-004); закрывает Q-3
+- **Решение:** `base_url` приходит в pairing QR вместе с одноразовым кодом и после успешного pairing хранится в Keychain рядом с токеном. Хост показывается пользователю до отправки кода. Release-сборка принимает только HTTPS, без user/password, query и fragment; редиректы при pairing не выполняются. `PairingSecurityPolicy.localDevelopment` (HTTP только к localhost/127.0.0.1/::1/`*.local`) предусмотрена для отдельной debug-конфигурации, но ни к одной сборке не подключена. Глобальный `NSAllowsArbitraryLoads` не добавляется; для локального HTTP в будущем — только `NSAllowsLocalNetworking` в debug-конфигурации.
+- **Последствия:** нет зашитых в сборку production URL; подключиться можно к любому HTTPS-хосту, который пользователь подтвердил, — поэтому хост показывается крупно и с предупреждением.
+
+## D-021 Хранение credentials и восстановление после потери Keychain
+
+- **Статус:** accepted (KC-004); уточняет D-011; закрывает Q-4
+- **Решение:** один generic-password item: service `app.katana.connector.pairing`, account `device-credentials`, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, без синхронизации. Содержимое — JSON с `device_token` и минимальными метаданными (`device_id`, `display_name`, `paired_at`, `base_url`). Повторное сохранение обновляет item. Одно подключение на устройство; чтобы подключиться к другому аккаунту, нужно сначала отключиться.
+  Если item отсутствует или не читается (например, после переподписи Sideloadly с другим team prefix) — состояние `unpaired`, Dashboard объясняет причину и предлагает подключиться заново; приложение не падает и не показывает активную связь.
+  Токен обёрнут в `DeviceToken` с редактированными `description`/`debugDescription`/mirror; не попадает в `UserDefaults`, `@Published`, UI и логи. Pairing code — в `PairingCode` с тем же поведением, хранится только в памяти до однократной отправки.
+- **Последствия:** «Отключить на этом iPhone» удаляет только локальные credentials — серверный revoke появится позже, и UI честно об этом говорит.
+
+## D-022 Core может использовать системные фреймворки без UI
+
+- **Статус:** accepted (KC-004); уточняет D-018
+- **Решение:** `Sources/Core` может импортировать Foundation, Security и Combine (для `ObservableObject` координатора). UIKit, SwiftUI, Photos и AVFoundation в Core запрещены; камера и экраны — в `Features/Pairing`. Unit-тесты не обращаются к реальному Keychain — используется in-memory `SecureTokenStoring`.
+
 ---
 
 ## Открытые вопросы
@@ -125,9 +149,9 @@
 |---|---|---|
 | Q-1 | ~~Окончательный Bundle ID и display name~~ — решено в D-012 | KC-002 |
 | Q-2 | ~~Модульность: папки или SPM-пакеты~~ — решено в D-013 | KC-002 |
-| Q-3 | Откуда берётся `<API_BASE_URL>`: из QR-payload (с проверкой по allowlist) или фиксирован в сборке по конфигурации | KC-004 |
-| Q-4 | Несколько аккаунтов/воркспейсов на одном устройстве | KC-004 |
-| Q-5 | Судьба неотправленных событий при revoke | KC-004/KC-005 |
+| Q-3 | ~~Откуда берётся адрес API~~ — из QR, только HTTPS (D-020) | KC-004 |
+| Q-4 | ~~Несколько аккаунтов на устройстве~~ — одно подключение (D-021) | KC-004 |
+| Q-5 | Судьба неотправленных событий при revoke (очереди пока нет) | KC-005 |
 | Q-6 | Семантика завершения cleanup-сессии и учёта неудалённых кандидатов | KC-006 |
 | Q-7 | Имя URL scheme и список действий | KC-007 |
 | Q-8 | Состав probes Capability Lab | KC-008 |

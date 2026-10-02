@@ -38,9 +38,19 @@ enum ConnectorJSON {
         return encoder
     }
 
+    /// Accepts ISO 8601 dates with or without fractional seconds.
     static func makeDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let text = try container.decode(String.self)
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = formatter.date(from: text) { return date }
+            formatter.formatOptions = [.withInternetDateTime]
+            if let date = formatter.date(from: text) { return date }
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Expected an ISO 8601 date")
+        }
         return decoder
     }
 }

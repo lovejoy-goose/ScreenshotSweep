@@ -2,6 +2,7 @@ import SwiftUI
 
 enum AppRoute: Hashable {
     case screenshotCleanup
+    case pairing
 }
 
 struct RootView: View {
@@ -14,6 +15,8 @@ struct RootView: View {
                     switch route {
                     case .screenshotCleanup:
                         ScreenshotCleanupView()
+                    case .pairing:
+                        PairingView()
                     }
                 }
         }

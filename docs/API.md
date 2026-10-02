@@ -4,7 +4,7 @@
 
 ## Общие правила
 
-- Транспорт: только HTTPS. Базовый адрес — `<API_BASE_URL>` (источник адреса — открытый вопрос, см. `DECISIONS.md`).
+- Транспорт: только HTTPS. Базовый адрес — `base_url` из pairing QR, сохраняется в Keychain вместе с токеном (D-020).
 - Формат: JSON, UTF-8. Время — ISO 8601 в UTC (`2026-10-02T12:34:56Z`).
 - Идентификаторы, создаваемые клиентом (`event_id`, `session_id`, `installation_id`), — UUID v4.
 - Авторизация после pairing: device token в заголовке (например, `Authorization: Bearer <device_token>`). Токен хранится только в Keychain и никогда не логируется.
@@ -18,28 +18,80 @@
 Инициирует PWA от имени залогиненного пользователя Katana.
 
 - Сервер выдаёт короткоживущий одноразовый `pairing_code` (TTL — минуты).
-- PWA показывает QR-код. Содержимое QR (концептуально): `pairing_code`, идентификатор окружения/адрес API (TBD), версия формата.
-- Connector в этой операции не участвует, только сканирует QR.
+- PWA показывает QR-код формата v1 (ниже). Connector в этой операции не участвует, только сканирует QR.
 
-### 2. Pairing complete (Connector → API)
+#### QR payload v1
+
+```
+katana-connector://pair?v=1&base_url=<percent-encoded-url>&code=<one-time-code>
+```
+
+| Параметр | Правила |
+|---|---|
+| scheme / host | строго `katana-connector` и `pair`; путь пустой; без user/port/fragment |
+| `v` | строго `1`; другие версии отклоняются |
+| `base_url` | обязателен, percent-encoded; `https://host[:port][/path]`; без user/password, query и fragment; хост в punycode (только печатный ASCII) |
+| `code` | обязателен; после trim не пустой; до 128 печатных ASCII-символов без пробелов |
+
+- Весь payload — до 2048 печатных ASCII-символов; повторяющиеся параметры запрещены; неизвестные параметры игнорируются.
+- QR **не** содержит постоянный device token — только одноразовый код.
+- Схема `katana-connector` — только формат QR. Приложение не регистрирует её как URL handler (это KC-007).
+- Release-сборка принимает только HTTPS. HTTP допустим только для локальной разработки (localhost, 127.0.0.1, ::1, `*.local`) в отдельной debug-конфигурации, которой пока нет (D-020).
+
+### 2. Pairing complete (Connector → API) — предварительный контракт v1
+
+```
+POST {base_url}/api/connector/pairing/complete
+Content-Type: application/json
+Accept: application/json
+```
 
 Запрос:
 
-| Поле | Описание |
-|---|---|
-| `pairing_code` | Код из QR |
-| `installation_id` | UUID установки, генерируется локально один раз |
-| `device` | Неперсональные данные: модель (`iPhone15,2`), версия iOS, версия приложения |
+```json
+{
+  "pairing_code": "<one-time-code>",
+  "device": {
+    "display_name": "iPhone",
+    "platform": "ios",
+    "app_version": "0.1.0",
+    "system_version": "18.0"
+  }
+}
+```
 
-Ответ:
+- `display_name` вводит пользователь перед подтверждением (по умолчанию `iPhone`, до 40 символов, `UIDevice.name` не используется — D-019).
+- Код отправляется один раз, только после того, как пользователь увидел хост и нажал «Подключить». Редиректы не выполняются.
 
-| Поле | Описание |
-|---|---|
-| `device_token` | Секрет устройства → сразу в Keychain |
-| `device_id` | Серверный идентификатор устройства |
-| `account_label` | Отображаемое имя аккаунта/воркспейса для UI (опционально) |
+Успешный ответ (`2xx`):
 
-Ошибки: код истёк, код уже использован, код неизвестен — Connector показывает понятное сообщение и предлагает отсканировать заново.
+```json
+{
+  "device_id": "<server-assigned>",
+  "device_token": "<secret>",
+  "display_name": "iPhone",
+  "paired_at": "2026-10-02T12:00:00Z"
+}
+```
+
+- `device_token` сразу сохраняется в Keychain и больше нигде не появляется (не логируется, не показывается в UI, не публикуется в состоянии).
+- `paired_at` — ISO 8601, дробные секунды допустимы.
+- Ответ больше 64 KiB, пустые `device_id`/`device_token` или невалидный JSON → `invalidResponse`.
+
+Ожидаемые коды ошибок (клиентская интерпретация):
+
+| HTTP | Ошибка клиента | Смысл |
+|---|---|---|
+| 410 | `expiredCode` | срок кода истёк |
+| 400, 401, 403, 409, 422 | `rejected` | код неизвестен, уже использован или запрос отклонён |
+| 408, 429, 5xx, сетевая ошибка, timeout (15 с) | `transport` | сервер недоступен, можно повторить с новым QR |
+| 3xx, 404, прочие | `invalidResponse` | по этому адресу нет pairing endpoint |
+
+Тело ошибки клиентом пока не разбирается. Не реализовано на сервере — нужен endpoint в Katana (KC-004 in review).
+
+### 2a. Revoke (локальный, KC-004)
+
+«Отключить на этом iPhone» удаляет credentials из Keychain. Серверный revoke пока не вызывается (см. п. 6).
 
 ### 3. Capability report (Connector → API)
 
