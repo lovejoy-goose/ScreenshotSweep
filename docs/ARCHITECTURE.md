@@ -1,13 +1,13 @@
 # Архитектура
 
-## Текущее состояние (после KC-005)
+## Текущее состояние (после KC-006)
 
 Один application target `KatanaConnector` (Bundle ID `app.katana.connector`) и unit-test target `KatanaConnectorTests`, iOS 16+, SwiftUI, проект генерируется XcodeGen из `project.yml`. Модули — папки (D-013), границы фреймворков — D-024.
 
 ```
 Sources/
 ├── App/
-│   ├── KatanaConnectorApp.swift      @main: собирает SweepStore, PairingCoordinator, EventDeliveryCoordinator; scenePhase → appBecameActive
+│   ├── KatanaConnectorApp.swift      @main: собирает SweepStore, CleanupSessionRecorder, PairingCoordinator, EventDeliveryCoordinator; scenePhase → appBecameActive
 │   └── RootView.swift                NavigationStack, AppRoute; pairing connected → delivery.pairingDidConnect
 ├── Core/
 │   ├── Capabilities/                 CapabilityID, модели состояния, CapabilityRegistry          (Foundation)
@@ -25,27 +25,43 @@ Sources/
 │   │   ├── ConnectorAPIError.swift   классификация статусов                                  (Foundation)
 │   │   ├── ConnectorAPIModels.swift  check / capability report / event batch, строгая проверка results (Foundation)
 │   │   └── ConnectorAPIClient.swift  протокол ConnectorAPI + Bearer-клиент                   (Foundation)
+│   ├── Cleanup/
+│   │   ├── CleanupSessionSummary.swift   агрегат сессии + CleanupSessionTracker (ID снимков только в памяти) (Foundation)
+│   │   └── CleanupSessionRecorder.swift  явное завершение → одно событие; без доступа к медиатеке (Combine)
 │   └── Events/
 │       ├── ConnectorEvent.swift      envelope + JSONValue, описания без payload               (Foundation)
-│       ├── EventQueueStore.swift     JSON-файл, атомарная запись, quarantine                  (Foundation)
-│       ├── EventQueue.swift          actor: FIFO, дедупликация, batch ≤ 20, лимиты, rejected   (Foundation)
+│       ├── ConnectionScope.swift     канонический base_url + device_id                        (Foundation)
+│       ├── EventQueueStore.swift     JSON-файл v2, миграция v1 → legacy, атомарная запись, quarantine (Foundation)
+│       ├── EventQueue.swift          actor: FIFO по scope, дедупликация, batch ≤ 20, лимиты, rejected (Foundation)
 │       └── EventDeliveryCoordinator.swift  single-flight flush, backoff, 401, статус для UI     (Combine)
 ├── Features/
 │   ├── Dashboard/DashboardView.swift     подключение / повторное подключение, синхронизация, функции, возможности
 │   ├── Pairing/                      PairingView, QRScannerView, PairingConfirmationView (предупреждение о замене)
-│   └── ScreenshotCleanup/            SweepStore, ScreenshotCleanupViews (без изменений)
+│   └── ScreenshotCleanup/            SweepStore (+ уведомления recorder), ScreenshotCleanupViews, CleanupCompletionView
 └── Shared/MessageView.swift
 Tests/KatanaConnectorTests/           XCTest без host app; mock URLProtocol/ConnectorAPI, in-memory token store, временные каталоги
 ```
 
-### Доставка событий (D-025…D-028)
+### Screenshot Cleanup → Katana (D-031)
 
 ```
-Feature (с KC-006) → EventDeliveryCoordinator.enqueue → EventQueue (actor) → event-queue.json (atomic)
+SweepStore.decide/undo/toggle/delete ──уведомления──▶ CleanupSessionRecorder (tracker: счётчики, ID только в памяти)
+«Завершить разбор» → CleanupCompletionView (превью итога) → «Завершить»
+  → recorder.complete(): summary (инварианты) → сессия закрыта → event screenshot_cleanup.completed
+  → EventDeliveryCoordinator.enqueueCleanupEvent → scope текущего подключения → EventQueue (на диск) → flush
+  → UI: «Результат сохранён для Katana» → «Результат отправлен в Katana» (по deliveredEventIDs)
+```
+
+PhotoKit по-прежнему меняется только в `SweepStore.deleteCandidates()`; recorder лишь получает уведомления.
+
+### Доставка событий (D-025…D-030)
+
+```
+Feature → EventDeliveryCoordinator.enqueue(scope = api.currentScope()) → EventQueue (actor) → event-queue.json v2 (atomic)
                                   │
      launch / foreground / новое событие / «Синхронизировать»
                                   ▼
-       requestFlush (single-flight) → nextBatch(≤20) → ConnectorAPI.sendEventBatch
+       requestFlush (single-flight) → nextBatch(scope, ≤20) → ConnectorAPI.sendEventBatch(scope) — сверка scope, иначе scopeMismatch
                                   │                       │ Keychain → Bearer → HTTPS → events/batch
                                   ▼                       ▼
        apply(results): accepted/duplicate → удалить; rejected → журнал без payload; нет результата → остаётся
@@ -127,10 +143,10 @@ Dashboard показывает итоговый статус, выведенны
 
 1. Пользователь открывает Screenshot Cleanup с Dashboard (позже — и по URL из PWA, KC-007).
 2. При входе в функцию запрашивается доступ к фото (только сейчас, не при запуске).
-3. Создаётся `session_id`, фиксируется `started_at`.
-4. Разбор как сейчас; удаление — только через `deleteCandidates()` с двойным подтверждением.
-5. По завершении сессии формируется событие `screenshots.cleanup.completed` (только счётчики и время) и **атомарно** пишется в очередь.
-6. `EventQueue` отправляет пакет через `APIClient`, когда устройство спарено и есть сеть; удаляет событие из очереди только после подтверждения сервера (`accepted` или `duplicate`).
+3. Первое решение начинает сессию (`session_id`, `started_at`).
+4. Разбор как раньше; удаление — только через `deleteCandidates()` с двойным подтверждением.
+5. «Завершить разбор» → «Завершить» формирует `screenshot_cleanup.completed` (только счётчики и время) и **атомарно** пишет его в очередь текущего подключения (D-029, D-031).
+6. `EventDeliveryCoordinator` отправляет пакет, когда устройство подключено и есть сеть; удаляет событие из очереди только после ответа сервера (`accepted`, `duplicate` или окончательный `rejected`).
 
 ### EventQueue
 

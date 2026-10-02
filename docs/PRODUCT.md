@@ -43,7 +43,7 @@ PWA открывает Connector по ссылке, пользователь в�
 
 - Поведение = исходный ScreenshotSweep (показ, оставить/на удаление, undo, review, удаление с двойным подтверждением).
 - Открывается кнопкой «Разобрать скриншоты» на Dashboard; доступ к фото запрашивается только при входе в функцию.
-- По завершении cleanup-сессии в очередь кладётся одно событие `screenshots.cleanup.completed` с полями `viewed`, `kept`, `deleted`, `started_at`, `completed_at` (см. `API.md`).
+- По явному завершению разбора в очередь текущего подключения кладётся одно событие `screenshot_cleanup.completed` с полями `session_id`, `started_at`, `completed_at`, `reviewed_count`, `kept_count`, `deletion_requested_count`, `deletion_completed` (см. `API.md`, D-031).
 - В Katana **не** отправляются: изображения, превью, `localIdentifier`, имена файлов, даты скриншотов, размеры, EXIF, геоданные.
 
 ### Capability Lab

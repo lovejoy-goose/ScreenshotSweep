@@ -4,8 +4,11 @@ import Foundation
 protocol ConnectorAPI: Sendable {
     func checkConnection() async throws -> ConnectionCheckResponse
     func reportCapabilities(_ capabilities: [CapabilitySnapshot]) async throws
-    /// Returns validated per-event results; sent events missing from the result stay queued.
-    func sendEventBatch(_ events: [ConnectorEvent]) async throws -> [UUID: EventDeliveryResult]
+    /// Sends only if the saved connection still has `scope`; otherwise throws `scopeMismatch`
+    /// without network. Returns validated per-event results; events missing from the result stay queued.
+    func sendEventBatch(_ events: [ConnectorEvent], scope: ConnectionScope) async throws -> [UUID: EventDeliveryResult]
+    /// Scope of the saved connection (also when it requires repair); `nil` when not paired or unreadable.
+    func currentScope() -> ConnectionScope?
 }
 
 enum ConnectorRoute: Sendable, CaseIterable {
@@ -77,14 +80,22 @@ struct URLSessionConnectorAPIClient: ConnectorAPI {
         _ = try await send(.capabilitiesReport, body: try encode(report), credentials: credentials)
     }
 
-    func sendEventBatch(_ events: [ConnectorEvent]) async throws -> [UUID: EventDeliveryResult] {
+    func sendEventBatch(_ events: [ConnectorEvent], scope: ConnectionScope) async throws -> [UUID: EventDeliveryResult] {
         guard !events.isEmpty else { return [:] }
         let credentials = try loadCredentials()
+        // Events are never delivered to a connection other than the one they were recorded for.
+        guard ConnectionScope(device: credentials.device) == scope else { throw ConnectorAPIError.scopeMismatch }
         let data = try await send(.eventsBatch, body: try encode(EventBatchRequest(events: events)), credentials: credentials)
         guard let response = try? ConnectorJSON.makeDecoder().decode(EventBatchResponse.self, from: data) else {
             throw ConnectorAPIError.invalidResponse
         }
         return try response.validated(against: events)
+    }
+
+    func currentScope() -> ConnectionScope? {
+        // `try?` flattens the optional: nil when nothing is stored or Keychain is unreadable.
+        guard let credentials = try? store.load() else { return nil }
+        return ConnectionScope(device: credentials.device)
     }
 
     func makeRequest(_ route: ConnectorRoute, body: Data?, credentials: PairingCredentials) throws -> URLRequest {

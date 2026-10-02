@@ -81,7 +81,7 @@ struct ConnectorEvent: Codable, Equatable, Sendable {
         try container.encode(payload, forKey: .payload)
     }
 
-    /// Lowercase dot-separated identifier, e.g. `screenshots.cleanup.completed`.
+    /// Lowercase dot-separated identifier, e.g. `screenshot_cleanup.completed`.
     var hasValidType: Bool {
         !type.isEmpty && type.count <= Self.maxTypeLength
             && type.unicodeScalars.allSatisfy { ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "." || $0 == "_" }

@@ -102,6 +102,7 @@ struct SweepView: View {
                 )
                 Spacer()
             }
+            FinishSessionButton()
         }
         .padding(.horizontal)
         .padding(.bottom)

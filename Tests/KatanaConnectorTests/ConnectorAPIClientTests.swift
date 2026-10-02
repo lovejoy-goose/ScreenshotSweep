@@ -112,7 +112,7 @@ final class ConnectorAPIClientTests: XCTestCase {
     func testEventBatchResponse() async throws {
         let events = (1...3).map { EventFixtures.event($0) }
         reply(200, batchResponse([(events[0], "accepted"), (events[1], "duplicate")]))
-        let results = try await client.sendEventBatch(events)
+        let results = try await client.sendEventBatch(events, scope: EventFixtures.scope)
 
         XCTAssertEqual(results[events[0].eventID]?.status, .accepted)
         XCTAssertEqual(results[events[1].eventID]?.status, .duplicate)
@@ -128,13 +128,13 @@ final class ConnectorAPIClientTests: XCTestCase {
     func testUnknownOrRepeatedEventIDRejected() async {
         let events = [EventFixtures.event(1)]
         reply(200, batchResponse([(EventFixtures.event(99), "accepted")]))
-        await assertAPIError(.invalidResponse) { _ = try await self.client.sendEventBatch(events) }
+        await assertAPIError(.invalidResponse) { _ = try await self.client.sendEventBatch(events, scope: EventFixtures.scope) }
 
         reply(200, batchResponse([(events[0], "accepted"), (events[0], "duplicate")]))
-        await assertAPIError(.invalidResponse) { _ = try await self.client.sendEventBatch(events) }
+        await assertAPIError(.invalidResponse) { _ = try await self.client.sendEventBatch(events, scope: EventFixtures.scope) }
 
         reply(200, #"{"results":[{"event_id":"00000000-0000-4000-8000-000000000001","status":"lost"}]}"#)
-        await assertAPIError(.invalidResponse) { _ = try await self.client.sendEventBatch(events) }
+        await assertAPIError(.invalidResponse) { _ = try await self.client.sendEventBatch(events, scope: EventFixtures.scope) }
     }
 
     func testOversizedResponseRejected() async {
@@ -150,7 +150,7 @@ final class ConnectorAPIClientTests: XCTestCase {
         ]
         for (status, expected) in cases {
             reply(status, "{}")
-            await assertAPIError(expected) { _ = try await self.client.sendEventBatch([EventFixtures.event(1)]) }
+            await assertAPIError(expected) { _ = try await self.client.sendEventBatch([EventFixtures.event(1)], scope: EventFixtures.scope) }
         }
 
         MockURLProtocol.reply = .failure(.timedOut)

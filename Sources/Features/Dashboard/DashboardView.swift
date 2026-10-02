@@ -94,6 +94,12 @@ struct DashboardView: View {
             LabeledContent("Последняя синхронизация",
                            value: delivery.lastSuccessfulSync?.formatted(date: .abbreviated, time: .shortened) ?? "ещё не было")
             LabeledContent("Событий в очереди", value: "\(delivery.pendingCount)")
+            if delivery.otherScopePendingCount > 0 {
+                LabeledContent("Ждут решения (другое подключение)", value: "\(delivery.otherScopePendingCount)")
+                Text("Эти события записаны для другого или прежнего подключения и автоматически не отправляются.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             if delivery.rejectedCount > 0 {
                 LabeledContent("Отклонено Katana", value: "\(delivery.rejectedCount)")
             }

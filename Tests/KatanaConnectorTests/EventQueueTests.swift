@@ -19,39 +19,39 @@ final class EventQueueTests: XCTestCase {
 
     func testEnqueueSurvivesNewInstance() async throws {
         let first = EventQueue(store: store)
-        try await first.enqueue(EventFixtures.event(1))
-        try await first.enqueue(EventFixtures.event(2))
+        try await first.enqueue(EventFixtures.event(1), scope: EventFixtures.scope)
+        try await first.enqueue(EventFixtures.event(2), scope: EventFixtures.scope)
 
         let reopened = EventQueue(store: EventQueueStore(directoryURL: store.directoryURL))
-        let events = try await reopened.pendingEvents()
+        let events = try await reopened.pendingEvents(scope: EventFixtures.scope)
         XCTAssertEqual(events, [EventFixtures.event(1), EventFixtures.event(2)])
     }
 
     func testFIFOOrder() async throws {
         let queue = EventQueue(store: store)
-        for index in [3, 1, 2] { try await queue.enqueue(EventFixtures.event(index)) }
-        let batch = try await queue.nextBatch()
+        for index in [3, 1, 2] { try await queue.enqueue(EventFixtures.event(index), scope: EventFixtures.scope) }
+        let batch = try await queue.nextBatch(scope: EventFixtures.scope)
         XCTAssertEqual(batch.map(\.eventID), [3, 1, 2].map { EventFixtures.event($0).eventID })
     }
 
     func testSameEventIDIsNotDuplicated() async throws {
         let queue = EventQueue(store: store)
-        let first = try await queue.enqueue(EventFixtures.event(1))
-        let again = try await queue.enqueue(EventFixtures.event(1, payload: .string("different")))
+        let first = try await queue.enqueue(EventFixtures.event(1), scope: EventFixtures.scope)
+        let again = try await queue.enqueue(EventFixtures.event(1, payload: .string("different")), scope: EventFixtures.scope)
         XCTAssertEqual(first, .enqueued)
         XCTAssertEqual(again, .alreadyQueued)
-        let events = try await queue.pendingEvents()
+        let events = try await queue.pendingEvents(scope: EventFixtures.scope)
         XCTAssertEqual(events.count, 1)
         XCTAssertEqual(events.first?.payload, .object(["n": .int(1)]), "the original payload is kept for retries")
     }
 
     func testBatchIsLimitedTo20() async throws {
         let queue = EventQueue(store: store)
-        for index in 1...25 { try await queue.enqueue(EventFixtures.event(index)) }
-        let batch = try await queue.nextBatch()
+        for index in 1...25 { try await queue.enqueue(EventFixtures.event(index), scope: EventFixtures.scope) }
+        let batch = try await queue.nextBatch(scope: EventFixtures.scope)
         XCTAssertEqual(batch.count, 20)
         XCTAssertEqual(batch.first?.eventID, EventFixtures.event(1).eventID)
-        let largerRequested = try await queue.nextBatch(limit: 50)
+        let largerRequested = try await queue.nextBatch(scope: EventFixtures.scope, limit: 50)
         XCTAssertEqual(largerRequested.count, 20)
         XCTAssertEqual(EventQueueLimits.default.maxBatchSize, 20)
     }
@@ -59,7 +59,7 @@ final class EventQueueTests: XCTestCase {
     func testAcceptedDuplicateAndRejectedHandling() async throws {
         let queue = EventQueue(store: store)
         let events = (1...4).map { EventFixtures.event($0, payload: .string("payload-\($0)")) }
-        for event in events { try await queue.enqueue(event) }
+        for event in events { try await queue.enqueue(event, scope: EventFixtures.scope) }
 
         // Event 4 has no result and must stay.
         let removed = try await queue.apply(Dictionary(uniqueKeysWithValues: [
@@ -69,7 +69,7 @@ final class EventQueueTests: XCTestCase {
         ]), at: Fixtures.pairedAt)
 
         XCTAssertEqual(removed, 3)
-        let remaining = try await queue.pendingEvents()
+        let remaining = try await queue.pendingEvents(scope: EventFixtures.scope)
         XCTAssertEqual(remaining, [events[3]])
 
         // Rejected policy: removed from the active queue, metadata kept without payload.
@@ -85,7 +85,7 @@ final class EventQueueTests: XCTestCase {
 
         // Survives restart.
         let reopened = EventQueue(store: EventQueueStore(directoryURL: store.directoryURL))
-        let reopenedRemaining = try await reopened.pendingEvents()
+        let reopenedRemaining = try await reopened.pendingEvents(scope: EventFixtures.scope)
         let reopenedRejected = try await reopened.rejectedRecords()
         XCTAssertEqual(reopenedRemaining, [events[3]])
         XCTAssertEqual(reopenedRejected.count, 1)
@@ -94,7 +94,7 @@ final class EventQueueTests: XCTestCase {
     func testRejectedRecordsAreCapped() async throws {
         let queue = EventQueue(store: store, limits: EventQueueLimits(maxBatchSize: 20, maxEvents: 500, maxEventBytes: 16 * 1024, maxRejectedRecords: 2))
         let events = (1...3).map { EventFixtures.event($0) }
-        for event in events { try await queue.enqueue(event) }
+        for event in events { try await queue.enqueue(event, scope: EventFixtures.scope) }
         try await queue.apply(MockConnectorAPI.results(events, .rejected), at: Fixtures.pairedAt)
         let rejected = try await queue.rejectedRecords()
         XCTAssertEqual(rejected.count, 2)
@@ -120,14 +120,14 @@ final class EventQueueTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: store.fileURL.path))
 
         // The queue keeps working afterwards.
-        try await queue.enqueue(EventFixtures.event(1))
+        try await queue.enqueue(EventFixtures.event(1), scope: EventFixtures.scope)
         let count = try await queue.pendingCount()
         XCTAssertEqual(count, 1)
     }
 
     func testFileIsExcludedFromBackupAndProtected() async throws {
         let queue = EventQueue(store: store)
-        try await queue.enqueue(EventFixtures.event(1))
+        try await queue.enqueue(EventFixtures.event(1), scope: EventFixtures.scope)
 
         let directoryValues = try store.directoryURL.resourceValues(forKeys: [.isExcludedFromBackupKey])
         XCTAssertEqual(directoryValues.isExcludedFromBackup, true)
@@ -148,23 +148,23 @@ final class EventQueueTests: XCTestCase {
         XCTAssertEqual(EventQueueLimits.default, EventQueueLimits(maxBatchSize: 20, maxEvents: 500, maxEventBytes: 16 * 1024, maxRejectedRecords: 100))
 
         let small = EventQueue(store: store, limits: EventQueueLimits(maxBatchSize: 20, maxEvents: 2, maxEventBytes: 1024, maxRejectedRecords: 100))
-        try await small.enqueue(EventFixtures.event(1))
-        try await small.enqueue(EventFixtures.event(2))
+        try await small.enqueue(EventFixtures.event(1), scope: EventFixtures.scope)
+        try await small.enqueue(EventFixtures.event(2), scope: EventFixtures.scope)
         do {
-            try await small.enqueue(EventFixtures.event(3))
+            try await small.enqueue(EventFixtures.event(3), scope: EventFixtures.scope)
             XCTFail("Expected queueFull")
         } catch EventQueueError.queueFull {}
 
         let other = EventQueue(store: EventFixtures.makeTemporaryStore(),
                                limits: EventQueueLimits(maxBatchSize: 20, maxEvents: 10, maxEventBytes: 1024, maxRejectedRecords: 100))
         do {
-            try await other.enqueue(EventFixtures.event(4, payload: .string(String(repeating: "a", count: 2000))))
+            try await other.enqueue(EventFixtures.event(4, payload: .string(String(repeating: "a", count: 2000))), scope: EventFixtures.scope)
             XCTFail("Expected eventTooLarge")
         } catch EventQueueError.eventTooLarge {}
 
         let invalidType = ConnectorEvent(type: "Bad Type!", occurredAt: Fixtures.pairedAt, sessionID: EventFixtures.sessionID, payload: .null)
         do {
-            try await other.enqueue(invalidType)
+            try await other.enqueue(invalidType, scope: EventFixtures.scope)
             XCTFail("Expected invalidEvent")
         } catch EventQueueError.invalidEvent {}
 

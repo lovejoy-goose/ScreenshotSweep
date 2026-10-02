@@ -24,7 +24,7 @@ final class EventDeliveryCoordinatorTests: XCTestCase {
 
     private func filledQueue(_ count: Int) async throws -> EventQueue {
         let queue = EventQueue(store: store)
-        for index in 1...count { try await queue.enqueue(EventFixtures.event(index)) }
+        for index in 1...count { try await queue.enqueue(EventFixtures.event(index), scope: EventFixtures.scope) }
         return queue
     }
 

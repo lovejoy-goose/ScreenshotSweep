@@ -10,8 +10,8 @@
 | KC-002 | Rename and modular structure | **done** | KC-001 |
 | KC-003 | Connector Core models and Capability Registry | **done** | KC-002 |
 | KC-004 | QR pairing and Keychain | **done** | KC-003 |
-| KC-005 | Persistent event queue and authenticated API client | **in review** (ждёт CI и проверки с реальным Katana API) | KC-003, KC-004 |
-| KC-006 | Screenshot Cleanup session integration | planned | KC-005 |
+| KC-005 | Persistent event queue and authenticated API client | **done** | KC-003, KC-004 |
+| KC-006 | Screenshot Cleanup event integration | **in review** (ждёт CI и доставки настоящего события в Katana) | KC-005 |
 | KC-007 | Custom URL scheme | planned | KC-002, KC-004 |
 | KC-008 | Capability Lab | planned | KC-003, KC-005 |
 | KC-009 | End-to-end validation | planned | KC-004 … KC-008 |
@@ -106,7 +106,7 @@
 
 ## KC-005 Persistent event queue and authenticated API client
 
-- **Статус:** in review — код, тесты и документация готовы; переводится в done после зелёного CI и проверки с реальным Katana API
+- **Статус:** done
 - **Цель:** надёжный авторизованный API-клиент и постоянная идемпотентная очередь событий без интеграции со Screenshot Cleanup.
 - **Scope:**
   - `Core/API`: `ConnectorTransport` (без редиректов, ≤ 64 KiB), `ConnectorAPIError`, модели check / capability report / event batch, `URLSessionConnectorAPIClient` (Bearer из Keychain перед каждым запросом);
@@ -124,24 +124,31 @@
   - [x] Доставка: триггеры launch/foreground/новое событие/кнопка; один flush; backoff с cap и jitter через injectable sleeper; отмена не удаляет события; без BackgroundTasks.
   - [x] Dashboard показывает честный статус без токена и сырых ошибок; новых разрешений нет.
   - [x] Unit-тесты по 26 обязательным сценариям.
-  - [ ] Тесты и device-сборка зелёные в CI.
-  - [ ] Проверка с реальным Katana API: check connection, capability report, event batch (accepted/duplicate/rejected), 401 после отзыва устройства.
-- **Заметки:** события, накопленные до повторного pairing, будут отправлены в новое подключение — открытый вопрос Q-5 до KC-006.
+  - [x] Тесты и device-сборка зелёные в CI: commit `bc9155df1edccf1db30c1c5c51e022013bc093de`, run https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37049709345 (74 unit-теста).
+  - [x] Проверка на реальном iPhone 2026-10-02 (подтверждено пользователем): connection/check успешно; capability report принят, сервер получил все 18 capabilities; lastSeen обновился; persistent queue отображается (0 событий). Event batch и 401 проверяются вместе с KC-006 на настоящем событии.
+- **Заметки:** Q-5 (события после повторного pairing) закрыт в KC-006, D-029.
 
-## KC-006 Screenshot Cleanup session integration
+## KC-006 Screenshot Cleanup event integration
 
-- **Статус:** planned
-- **Цель:** сделать Screenshot Cleanup первой законченной функцией Connector.
-- **Scope:** решение Q-6 (семантика сессии); `CleanupSessionSummary` с проверкой инвариантов `kept + deleted <= viewed`, `started_at <= completed_at` (перенесено из KC-003); `session_id`, `started_at`/`completed_at`; подсчёт `viewed`/`kept`/`deleted` (deleted — только после успешного `performChanges`); запись `screenshots.cleanup.completed` в очередь. (Перенос запроса доступа к фото со старта выполнен в KC-002, D-014.)
-- **Вне scope:** изменения модели удаления и подтверждений.
+- **Статус:** in review — код, тесты и документация готовы; переводится в done после зелёного CI и доставки настоящего события в Katana
+- **Цель:** подключить Screenshot Cleanup к persistent event queue и впервые доставить реальное пользовательское событие в Katana; привязать очередь к подключению (Q-5).
+- **Scope:**
+  - `ConnectionScope`, очередь v2 со scope, миграция v1 → `legacy_events`, flush только текущего scope, проверка scope в API-клиенте (D-029, D-030);
+  - `CleanupSessionSummary`, `CleanupSessionTracker`, `CleanupSessionRecorder`; событие `screenshot_cleanup.completed` (D-031);
+  - `SweepStore`: только уведомления recorder (решение, undo, toggle, начало/итог удаления, изменение медиатеки); модель удаления не изменена;
+  - UI: «Завершить разбор», экран итога со статусом Katana; Dashboard — события текущего подключения и «ждут решения».
+- **Вне scope:** новые разрешения, BackgroundTasks, WebSocket, push, deep links/remote commands, загрузка изображений, зависимости, изменения серверного API, KC-007.
+- **Документы:** `API.md` (событие), `ARCHITECTURE.md`, `DECISIONS.md` (D-029…D-031), `TESTING.md`.
 - **Зависимости:** KC-005.
 - **Acceptance criteria:**
-  - [ ] Одна сессия → не более одного события; повторная отправка не создаёт дублей.
-  - [ ] Payload содержит только поля из `API.md`; нет идентификаторов и метаданных фото.
-  - [ ] Отмена в системном диалоге → `deleted` не увеличивается.
-  - [ ] Регрессионный чек-лист `TESTING.md` проходит; модель удаления не изменена.
-  - [ ] Доступ к фото по-прежнему запрашивается только при входе в функцию (D-014).
-  - [ ] Без pairing функция работает локально; события копятся в очереди (или не создаются — по решению Q-6).
+  - [x] Событие записывается со scope текущего подключения; flush отправляет только его; чужие scope и legacy не отправляются и не удаляются; повторное pairing к тому же scope сохраняет очередь.
+  - [x] Миграция `event-queue.json` v1 → v2 без потери событий (legacy + backup исходного файла).
+  - [x] `CleanupSessionSummary` только с агрегатами; инварианты проверяются; недостоверные значения не отправляются.
+  - [x] Событие только после явного завершения; один `session_id` → максимум одно событие; отмена/выход ничего не создают; сначала очередь, потом flush; offline/ошибка очереди не мешают завершению и не влияют на PhotoKit.
+  - [x] UI: «Результат сохранён для Katana» / «Результат отправлен в Katana» / безопасная ошибка; без event_id, scope, токенов и сырых ошибок.
+  - [x] Unit-тесты по 18 обязательным сценариям.
+  - [ ] Тесты и device-сборка зелёные в CI.
+  - [ ] Настоящее событие `screenshot_cleanup.completed` доставлено в Katana с реального iPhone (ручной чек-лист в `TESTING.md`).
 
 ## KC-007 Custom URL scheme
 

@@ -6,7 +6,8 @@ struct KatanaConnectorApp: App {
 
     // Creating the store does not touch photo authorization; access is requested
     // only when Screenshot Cleanup is opened (see `ScreenshotCleanupView`).
-    @StateObject private var sweepStore = SweepStore()
+    @StateObject private var sweepStore: SweepStore
+    @StateObject private var cleanupSession: CleanupSessionRecorder
     // Reads saved pairing credentials from Keychain (no permission prompt, no network).
     @StateObject private var pairingCoordinator: PairingCoordinator
     @StateObject private var deliveryCoordinator: EventDeliveryCoordinator
@@ -21,8 +22,11 @@ struct KatanaConnectorApp: App {
                                                 registry: registry,
                                                 syncState: UserDefaultsSyncStateStore())
         delivery.onUnauthorized = { [weak pairing] in pairing?.markRequiresRepair() }
+        let session = CleanupSessionRecorder(sink: delivery)
 
         capabilityRegistry = registry
+        _sweepStore = StateObject(wrappedValue: SweepStore(session: session))
+        _cleanupSession = StateObject(wrappedValue: session)
         _pairingCoordinator = StateObject(wrappedValue: pairing)
         _deliveryCoordinator = StateObject(wrappedValue: delivery)
     }
@@ -33,6 +37,7 @@ struct KatanaConnectorApp: App {
                 .environmentObject(sweepStore)
                 .environmentObject(pairingCoordinator)
                 .environmentObject(deliveryCoordinator)
+                .environmentObject(cleanupSession)
                 .task {
                     await deliveryCoordinator.prepare()
                     deliveryCoordinator.appBecameActive()

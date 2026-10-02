@@ -3,7 +3,8 @@ import Foundation
 struct EventQueueLimits: Equatable, Sendable {
     /// Events per `events/batch` request.
     var maxBatchSize = 20
-    /// Pending events; further enqueues fail instead of dropping older events.
+    /// Pending events of all scopes (including legacy); further enqueues fail instead of
+    /// dropping older events.
     var maxEvents = 500
     /// Encoded size of a single event.
     var maxEventBytes = 16 * 1024
@@ -13,8 +14,8 @@ struct EventQueueLimits: Equatable, Sendable {
     static let `default` = EventQueueLimits()
 }
 
-/// Persistent FIFO of events awaiting delivery. Serialized by the actor; every change
-/// is written to disk before it becomes visible.
+/// Persistent, connection-scoped FIFO of events awaiting delivery. Serialized by the
+/// actor; every change is written to disk before it becomes visible.
 actor EventQueue {
     enum EnqueueResult: Equatable, Sendable {
         case enqueued
@@ -30,36 +31,61 @@ actor EventQueue {
         self.limits = limits
     }
 
-    /// Loads the file. Throws `corruptedStore` once if it had to be quarantined.
+    /// Loads (and if needed migrates) the file. Throws `corruptedStore` once if it had to be quarantined.
     func open() throws {
         _ = try loaded()
     }
 
+    /// Adds an event for `scope`. An `event_id` already present in any scope (or legacy) is a no-op.
     @discardableResult
-    func enqueue(_ event: ConnectorEvent) throws -> EnqueueResult {
+    func enqueue(_ event: ConnectorEvent, scope: ConnectionScope) throws -> EnqueueResult {
         var current = try loaded()
-        if current.events.contains(where: { $0.eventID == event.eventID }) { return .alreadyQueued }
+        if Self.contains(event.eventID, in: current) { return .alreadyQueued }
         guard event.hasValidType else { throw EventQueueError.invalidEvent }
         guard let encoded = try? ConnectorJSON.makeEncoder().encode(event) else { throw EventQueueError.invalidEvent }
         guard encoded.count <= limits.maxEventBytes else { throw EventQueueError.eventTooLarge }
-        guard current.events.count < limits.maxEvents else { throw EventQueueError.queueFull }
-        current.events.append(event)
+        guard current.events.count + current.legacyEvents.count < limits.maxEvents else { throw EventQueueError.queueFull }
+        current.events.append(QueuedEvent(scope: scope, event: event))
         try persist(current)
         return .enqueued
     }
 
-    /// Oldest events first, at most `maxBatchSize`.
-    func nextBatch(limit: Int? = nil) throws -> [ConnectorEvent] {
-        let size = min(limit ?? limits.maxBatchSize, limits.maxBatchSize)
-        return Array(try loaded().events.prefix(max(size, 0)))
+    /// Oldest events of `scope` first, at most `maxBatchSize`. Other scopes and legacy events are never returned.
+    func nextBatch(scope: ConnectionScope, limit: Int? = nil) throws -> [ConnectorEvent] {
+        let size = max(min(limit ?? limits.maxBatchSize, limits.maxBatchSize), 0)
+        return Array(try loaded().events.lazy.filter { $0.scope == scope }.map(\.event).prefix(size))
     }
 
-    func pendingEvents() throws -> [ConnectorEvent] {
+    func pendingEvents(scope: ConnectionScope) throws -> [ConnectorEvent] {
+        try loaded().events.filter { $0.scope == scope }.map(\.event)
+    }
+
+    func pendingEntries() throws -> [QueuedEvent] {
         try loaded().events
     }
 
+    func legacyEvents() throws -> [ConnectorEvent] {
+        try loaded().legacyEvents
+    }
+
+    /// All pending events, any scope, including legacy.
     func pendingCount() throws -> Int {
-        try loaded().events.count
+        let current = try loaded()
+        return current.events.count + current.legacyEvents.count
+    }
+
+    func pendingCount(scope: ConnectionScope) throws -> Int {
+        try loaded().events.filter { $0.scope == scope }.count
+    }
+
+    /// Events waiting for another connection, plus legacy events. With no current scope, all of them.
+    func otherPendingCount(excluding scope: ConnectionScope?) throws -> Int {
+        let current = try loaded()
+        return current.events.filter { $0.scope != scope }.count + current.legacyEvents.count
+    }
+
+    func contains(eventID: UUID) throws -> Bool {
+        Self.contains(eventID, in: try loaded())
     }
 
     func rejectedRecords() throws -> [RejectedEventRecord] {
@@ -67,20 +93,21 @@ actor EventQueue {
     }
 
     /// Removes accepted and duplicate events; rejected events leave the active queue and
-    /// keep only metadata. Events without a result stay. Returns how many were removed.
+    /// keep only metadata. Events without a result stay. Legacy events are never touched.
+    /// Returns how many were removed.
     @discardableResult
     func apply(_ results: [UUID: EventDeliveryResult], at date: Date) throws -> Int {
         var current = try loaded()
         var removed = 0
-        var remaining: [ConnectorEvent] = []
-        for event in current.events {
-            guard let result = results[event.eventID] else {
-                remaining.append(event)
+        var remaining: [QueuedEvent] = []
+        for entry in current.events {
+            guard let result = results[entry.event.eventID] else {
+                remaining.append(entry)
                 continue
             }
             removed += 1
             if result.status == .rejected {
-                current.rejected.append(RejectedEventRecord(eventID: event.eventID, type: event.type,
+                current.rejected.append(RejectedEventRecord(eventID: entry.event.eventID, type: entry.event.type,
                                                             code: result.code.map { String($0.prefix(RejectedEventRecord.maxCodeLength)) },
                                                             rejectedAt: date))
             }
@@ -92,6 +119,10 @@ actor EventQueue {
         }
         try persist(current)
         return removed
+    }
+
+    private static func contains(_ eventID: UUID, in file: EventQueueFile) -> Bool {
+        file.events.contains { $0.event.eventID == eventID } || file.legacyEvents.contains { $0.eventID == eventID }
     }
 
     private func loaded() throws -> EventQueueFile {

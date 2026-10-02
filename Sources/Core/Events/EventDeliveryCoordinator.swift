@@ -86,13 +86,19 @@ final class EventDeliveryCoordinator: ObservableObject {
     }
 
     @Published private(set) var status: SyncStatus = .idle
+    /// Events of the current connection.
     @Published private(set) var pendingCount = 0
+    /// Events recorded for another connection or migrated without one. Never sent automatically.
+    @Published private(set) var otherScopePendingCount = 0
     @Published private(set) var rejectedCount = 0
     @Published private(set) var lastSuccessfulSync: Date?
     @Published private(set) var lastCheck: ConnectionCheckResult?
     @Published private(set) var isCheckingConnection = false
     @Published private(set) var queueIssue: QueueIssue?
     @Published private(set) var isFlushing = false
+    /// Events acknowledged (accepted/duplicate) or rejected during this app run. Internal only.
+    @Published private(set) var deliveredEventIDs: Set<UUID> = []
+    @Published private(set) var rejectedEventIDs: Set<UUID> = []
 
     /// Called once per 401 so pairing can flag the credentials.
     var onUnauthorized: (@MainActor () -> Void)?
@@ -159,13 +165,16 @@ final class EventDeliveryCoordinator: ObservableObject {
         if status == .requiresRepair { status = .idle }
         lastCheck = nil
         didReportCapabilities = false
+        Task { await refreshCounts() }
         appBecameActive()
     }
 
-    /// Persists the event first, then tries to deliver it.
+    /// Persists the event for the current connection first, then tries to deliver it.
+    /// Throws `ConnectorAPIError.notPaired` when there is no connection to attach it to.
     func enqueue(_ event: ConnectorEvent) async throws {
+        guard let scope = api.currentScope() else { throw ConnectorAPIError.notPaired }
         do {
-            try await queue.enqueue(event)
+            try await queue.enqueue(event, scope: scope)
         } catch {
             handleQueueError(error)
             throw error
@@ -259,11 +268,16 @@ final class EventDeliveryCoordinator: ObservableObject {
     private func flushOnce() async {
         // After a 401 nothing is sent until the user pairs again.
         guard status != .requiresRepair else { return }
+        // Only events of the current connection are ever sent.
+        guard let scope = api.currentScope() else {
+            status = .idle
+            return
+        }
         var attempt = 0
         while !Task.isCancelled {
             let batch: [ConnectorEvent]
             do {
-                batch = try await queue.nextBatch()
+                batch = try await queue.nextBatch(scope: scope)
             } catch {
                 handleQueueError(error)
                 status = .failed(.storage)
@@ -276,8 +290,9 @@ final class EventDeliveryCoordinator: ObservableObject {
 
             status = .syncing
             do {
-                let results = try await api.sendEventBatch(batch)
+                let results = try await api.sendEventBatch(batch, scope: scope)
                 let removed = try await queue.apply(results, at: now())
+                recordOutcomes(results)
                 markSynced()
                 await refreshCounts()
                 attempt = 0
@@ -291,7 +306,7 @@ final class EventDeliveryCoordinator: ObservableObject {
                 case .unauthorized:
                     enterRequiresRepair()
                     return
-                case .notPaired, .credentialsUnavailable:
+                case .notPaired, .credentialsUnavailable, .scopeMismatch:
                     status = .idle
                     return
                 case .transport, .rateLimited, .serverError:
@@ -337,8 +352,24 @@ final class EventDeliveryCoordinator: ObservableObject {
         syncState.lastSuccessfulSync = date
     }
 
+    private func recordOutcomes(_ results: [UUID: EventDeliveryResult]) {
+        for (id, result) in results {
+            if result.status == .rejected {
+                rejectedEventIDs.insert(id)
+            } else {
+                deliveredEventIDs.insert(id)
+            }
+        }
+    }
+
     private func refreshCounts() async {
-        if let count = try? await queue.pendingCount() { pendingCount = count }
+        let scope = api.currentScope()
+        if let scope, let count = try? await queue.pendingCount(scope: scope) {
+            pendingCount = count
+        } else if scope == nil {
+            pendingCount = 0
+        }
+        if let other = try? await queue.otherPendingCount(excluding: scope) { otherScopePendingCount = other }
         if let records = try? await queue.rejectedRecords() { rejectedCount = records.count }
     }
 
@@ -354,7 +385,20 @@ final class EventDeliveryCoordinator: ObservableObject {
         case .rateLimited: return .rateLimited
         case .serverError: return .serverError
         case .rejected, .unauthorized, .insecureHost: return .rejected
-        case .invalidResponse: return .invalidResponse
+        case .invalidResponse, .scopeMismatch: return .invalidResponse
+        }
+    }
+}
+
+extension EventDeliveryCoordinator: CleanupEventSink {
+    func enqueueCleanupEvent(_ event: ConnectorEvent) async -> CleanupEnqueueOutcome {
+        do {
+            try await enqueue(event)
+            return .saved
+        } catch ConnectorAPIError.notPaired {
+            return .notPaired
+        } catch {
+            return .failed
         }
     }
 }

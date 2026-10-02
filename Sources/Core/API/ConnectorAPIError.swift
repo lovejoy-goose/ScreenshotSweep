@@ -20,6 +20,8 @@ enum ConnectorAPIError: Error, Equatable, Sendable {
     case serverError(statusCode: Int)
     /// Redirect, unexpected status, oversized or malformed body.
     case invalidResponse
+    /// The saved connection changed; events of the old scope are not sent to it.
+    case scopeMismatch
 
     /// `nil` for 2xx.
     static func classify(statusCode: Int) -> ConnectorAPIError? {
@@ -38,7 +40,7 @@ enum ConnectorAPIError: Error, Equatable, Sendable {
     var isRetryable: Bool {
         switch self {
         case .transport, .rateLimited, .serverError: return true
-        case .notPaired, .credentialsUnavailable, .insecureHost, .unauthorized, .rejected, .invalidResponse: return false
+        case .notPaired, .credentialsUnavailable, .insecureHost, .unauthorized, .rejected, .invalidResponse, .scopeMismatch: return false
         }
     }
 }

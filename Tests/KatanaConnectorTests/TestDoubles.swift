@@ -183,6 +183,15 @@ final class MockConnectorAPI: ConnectorAPI, @unchecked Sendable {
     private var _maxInFlight = 0
     private var _sentBatches: [[ConnectorEvent]] = []
     private var _reportCalls = 0
+    private var _scope: ConnectionScope? = EventFixtures.scope
+    private var _sentScopes: [ConnectionScope] = []
+
+    /// Scope of the "saved connection"; `nil` = not paired.
+    var scope: ConnectionScope? {
+        get { lock.lock(); defer { lock.unlock() }; return _scope }
+        set { lock.lock(); _scope = newValue; lock.unlock() }
+    }
+    var sentScopes: [ConnectionScope] { lock.lock(); defer { lock.unlock() }; return _sentScopes }
 
     var batchHandler: @Sendable ([ConnectorEvent]) async throws -> [UUID: EventDeliveryResult] = { events in
         MockConnectorAPI.results(events, .accepted)
@@ -210,8 +219,14 @@ final class MockConnectorAPI: ConnectorAPI, @unchecked Sendable {
         try await reportHandler()
     }
 
-    func sendEventBatch(_ events: [ConnectorEvent]) async throws -> [UUID: EventDeliveryResult] {
+    func currentScope() -> ConnectionScope? {
+        lock.lock(); defer { lock.unlock() }
+        return _scope
+    }
+
+    func sendEventBatch(_ events: [ConnectorEvent], scope: ConnectionScope) async throws -> [UUID: EventDeliveryResult] {
         lock.lock()
+        _sentScopes.append(scope)
         _batchCalls += 1
         _inFlight += 1
         _maxInFlight = max(_maxInFlight, _inFlight)
@@ -226,6 +241,10 @@ final class MockConnectorAPI: ConnectorAPI, @unchecked Sendable {
 
 enum EventFixtures {
     static let sessionID = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
+    /// Scope of `Fixtures.credentials`.
+    static let scope = ConnectionScope(baseURL: URL(string: "https://katana.example")!, deviceID: "dev_fixture")
+    static let otherDeviceScope = ConnectionScope(baseURL: URL(string: "https://katana.example")!, deviceID: "dev_other")
+    static let otherHostScope = ConnectionScope(baseURL: URL(string: "https://other-katana.example")!, deviceID: "dev_fixture")
 
     /// Neutral test event; not a real Screenshot Cleanup event.
     static func event(_ index: Int, payload: JSONValue = .object(["n": .int(1)])) -> ConnectorEvent {
