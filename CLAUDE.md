@@ -59,6 +59,7 @@
 
 - Генерация проекта: XcodeGen (`project.yml`), `*.xcodeproj` не коммитится.
 - CI: `.github/workflows/build-ios.yml` — unsigned-сборка `KatanaConnector.ipa` (artifact `katana-connector-unsigned-ipa`).
-- Структура: `Sources/App`, `Sources/Features/<Feature>`, `Sources/Shared` (только реально общее). Без локальных SPM-пакетов и пустых заготовок (D-013).
+- Структура: `Sources/App`, `Sources/Core` (только Foundation, без UI/PhotoKit/сети), `Sources/Features/<Feature>`, `Sources/Shared` (только реально общее), `Tests/KatanaConnectorTests`. Без локальных SPM-пакетов и пустых заготовок (D-013, D-018).
+- Wire values моделей (snake_case) после релиза не меняются; любое изменение — только вместе с тестами и записью в `DECISIONS.md`.
 - Минимальная iOS: 16.0. Язык: Swift 5, SwiftUI. Только фреймворки Apple.
 - Язык UI и документации — русский; идентификаторы в коде и API — английский.

@@ -31,4 +31,21 @@ targets:
         CODE_SIGN_STYLE: Manual
         CODE_SIGNING_ALLOWED: NO
         CODE_SIGNING_REQUIRED: NO
-    scheme: {}
+    scheme:
+      testTargets:
+        - KatanaConnectorTests
+
+  # Core unit tests: compiles Sources/Core directly, no host app and no UI.
+  KatanaConnectorTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - Sources/Core
+      - Tests/KatanaConnectorTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.katana.connector.tests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO

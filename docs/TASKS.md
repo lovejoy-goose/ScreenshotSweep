@@ -7,8 +7,8 @@
 | ID | Задача | Статус | Зависит от |
 |---|---|---|---|
 | KC-001 | Repository foundation | **done** | — |
-| KC-002 | Rename and modular structure | **in review** (код готов; ждёт CI и проверки на устройстве) | KC-001 |
-| KC-003 | Connector Core models | planned | KC-002 |
+| KC-002 | Rename and modular structure | **done** | KC-001 |
+| KC-003 | Connector Core models and Capability Registry | **in review** (ждёт зелёного CI) | KC-002 |
 | KC-004 | QR pairing and Keychain | planned | KC-003 |
 | KC-005 | Persistent event queue and API client | planned | KC-003, KC-004 |
 | KC-006 | Screenshot Cleanup session integration | planned | KC-005 |
@@ -35,7 +35,7 @@
 
 ## KC-002 Rename and modular structure
 
-- **Статус:** in review — код и документация готовы; ждёт зелёного CI и ручной проверки на устройстве, после чего переводится в done
+- **Статус:** done
 - **Цель:** превратить проект в Katana Connector структурно: переименование, папки-модули, стартовый Dashboard; поведение Screenshot Cleanup не меняется.
 - **Scope:**
   - Bundle ID `app.katana.connector`, display name «Katana Connector», target/scheme/product `KatanaConnector`, `@main` `KatanaConnectorApp` (D-012);
@@ -54,22 +54,30 @@
   - [x] PhotoKit запрашивается только при входе в Screenshot Cleanup.
   - [x] Логика `SweepStore` и модель удаления не изменены (файл только перемещён).
   - [x] `rg "ScreenshotSweep\|local\.sweep"` — только исторические упоминания и имя GitHub-репозитория.
-  - [ ] Проект генерируется XcodeGen и собирается в CI; артефакт `KatanaConnector.ipa` создаётся — проверяется запуском workflow на ветке (локально нет XcodeGen/Xcode).
-  - [ ] Ручные чек-листы Dashboard и Screenshot Cleanup из `TESTING.md` — на устройстве после установки `.ipa`.
+  - [x] Проект генерируется XcodeGen и собирается в CI; артефакт `KatanaConnector.ipa` создаётся — оба CI-run на `1aeb84f` успешны (workflow_dispatch 37036895892, pull_request 37036928677).
+  - [x] Ручная проверка на реальном iPhone (подтверждено пользователем): Katana Connector установлен; Dashboard открывается и не запрашивает PhotoKit; Screenshot Cleanup запрашивает PhotoKit только после входа; существующий cleanup-сценарий работает.
 - **Заметки:** при входе в Screenshot Cleanup стандартная кнопка «Назад» скрыта и заменена на «Главная» (кнопка «Отменить» остаётся рядом); жест свайпа назад из-за этого недоступен. Состояние разбора живёт на уровне приложения и сохраняется при возврате на Dashboard.
 
-## KC-003 Connector Core models
+## KC-003 Connector Core models and Capability Registry
 
-- **Статус:** planned
-- **Цель:** ввести общие модели и протоколы без сетевой и платформенной логики.
-- **Scope:** `Capability`, `CapabilityStatus`, `CapabilityRegistry` (статический список, Screenshot Cleanup как первая capability), `ConnectorEvent` (конверт с `event_id`, `type`, `occurred_at`, `session_id`, `payload`), `CleanupSessionSummary`, `PairingState`, `DeviceInfo`; протокол `EventSink`; Codable-кодирование по `API.md`; unit-test target в `project.yml` и CI.
-- **Вне scope:** хранение, сеть, Keychain, UI.
+- **Статус:** in review — код, тесты и документация готовы; переводится в done после зелёного CI
+- **Цель:** типизированное ядро Connector и реестр capabilities без pairing, сети, Keychain, persistent queue и новых запросов разрешений.
+- **Scope:**
+  - `Sources/Core/Capabilities`: `CapabilityID` (18 id), `CapabilityAvailability`, `CapabilityAuthorization`, `CapabilityProbeState`, `CapabilityCategory`, `CapabilityDescriptor`, `CapabilitySnapshot`, `CapabilityRegistry`, `CapabilitySnapshotProviding`, `StaticCapabilitySnapshotProvider` (D-016, D-017);
+  - `Sources/Core/Connector`: `ConnectorConnectionState`, `ConnectorDeviceSummary`, `ConnectorJSON` (ISO 8601);
+  - Dashboard: блок «Возможности устройства» из registry (Фото, Текущая геолокация, Движение, Локальные уведомления, Фоновая геолокация, HealthKit);
+  - target `KatanaConnectorTests` без host app (D-018); шаг unit-тестов в CI на динамически выбранном iPhone Simulator до device-сборки.
+- **Вне scope:** QR pairing, Keychain, API client, URLSession, event queue и `ConnectorEvent`/`EventSink` (перенесены в KC-005), `CleanupSessionSummary` (KC-006), URL scheme, запросы разрешений, импорты HealthKit/Core NFC, Bluetooth.
+- **Документы:** `DECISIONS.md` (D-016…D-018), `ARCHITECTURE.md`, `API.md` (capability report), `TESTING.md`.
 - **Зависимости:** KC-002.
 - **Acceptance criteria:**
-  - [ ] `ConnectorCore` не импортирует UIKit/SwiftUI/Photos.
-  - [ ] Unit-тесты: JSON-кодирование событий соответствует `API.md`; инварианты `kept + deleted <= viewed`, `started_at <= completed_at` проверяются.
-  - [ ] Тесты запускаются в CI.
-  - [ ] Поведение приложения не изменилось.
+  - [x] `Sources/Core` импортирует только Foundation.
+  - [x] Модели Codable, Equatable, Sendable; стабильные snake_case wire values.
+  - [x] Registry — единственный упорядоченный каталог; не singleton; provider подменяем.
+  - [x] Начальные состояния: photos available/unknown/not_run; healthKit и coreNFC missing_entitlement; остальные planned.
+  - [x] Unit-тесты: уникальность id, каждый id ровно один раз, стабильный порядок, round-trip snapshot, точные wire values, начальные состояния, round-trip `ConnectorDeviceSummary`, подмена provider.
+  - [x] Dashboard берёт данные из registry и не запрашивает разрешений.
+  - [ ] Тесты и device-сборка зелёные в CI (локально тулчейн не позволяет собрать: нет Xcode, CLT несовместим со своим SDK).
 
 ## KC-004 QR pairing and Keychain
 
@@ -90,7 +98,7 @@
 
 - **Статус:** planned
 - **Цель:** надёжная доставка событий в Katana API.
-- **Scope:** выбор хранения (файл Codable / SQLite из SDK); `EventQueue` (атомарная запись, чтение пачками, удаление после `accepted`/`duplicate`); `APIClient` (event batch, capability report, check connection); backoff; обработка 401/4xx/5xx; экран статуса подключения; file protection и исключение из бэкапа.
+- **Scope:** `ConnectorEvent` (конверт `event_id`, `type`, `occurred_at`, `session_id`, `payload`) и протокол `EventSink` (перенесены из KC-003); выбор хранения (файл Codable / SQLite из SDK); `EventQueue` (атомарная запись, чтение пачками, удаление после `accepted`/`duplicate`); `APIClient` (event batch, capability report, check connection); backoff; обработка 401/4xx/5xx; экран статуса подключения; file protection и исключение из бэкапа.
 - **Вне scope:** интеграция с Screenshot Cleanup UI.
 - **Зависимости:** KC-003, KC-004.
 - **Acceptance criteria:**
@@ -105,7 +113,7 @@
 
 - **Статус:** planned
 - **Цель:** сделать Screenshot Cleanup первой законченной функцией Connector.
-- **Scope:** решение Q-6 (семантика сессии); `session_id`, `started_at`/`completed_at`; подсчёт `viewed`/`kept`/`deleted` (deleted — только после успешного `performChanges`); запись `screenshots.cleanup.completed` в очередь. (Перенос запроса доступа к фото со старта выполнен в KC-002, D-014.)
+- **Scope:** решение Q-6 (семантика сессии); `CleanupSessionSummary` с проверкой инвариантов `kept + deleted <= viewed`, `started_at <= completed_at` (перенесено из KC-003); `session_id`, `started_at`/`completed_at`; подсчёт `viewed`/`kept`/`deleted` (deleted — только после успешного `performChanges`); запись `screenshots.cleanup.completed` в очередь. (Перенос запроса доступа к фото со старта выполнен в KC-002, D-014.)
 - **Вне scope:** изменения модели удаления и подтверждений.
 - **Зависимости:** KC-005.
 - **Acceptance criteria:**

@@ -5,7 +5,8 @@
 - Локально может не быть Xcode (только Command Line Tools). Тогда сборка проверяется в CI.
 - CI: `.github/workflows/build-ios.yml` на `macos-15` — `xcodegen generate` → `xcodebuild -scheme KatanaConnector` (unsigned, `iphoneos`) → `KatanaConnector.ipa` в артефакте `katana-connector-unsigned-ipa`. Запускается на push в `main`, на PR и вручную: `gh workflow run build-ios.yml --ref <ветка>`.
 - Установка на устройство — Sideloadly (см. `README.md`).
-- Тестового target пока нет. Unit-тесты появляются вместе с `ConnectorCore` (KC-003) и должны запускаться в CI.
+- Unit-тесты: target `KatanaConnectorTests` (XCTest) компилирует `Sources/Core` без host app (D-018). В CI шаг «Unit tests (iOS Simulator)» выполняется до device-сборки на динамически выбранном iPhone Simulator.
+- Локальный запуск требует Xcode: `xcodegen generate`, затем `xcodebuild -project KatanaConnector.xcodeproj -scheme KatanaConnector -destination 'platform=iOS Simulator,name=<доступный iPhone>' CODE_SIGNING_ALLOWED=NO test`.
 
 ## Обязательные проверки после каждой задачи
 
@@ -14,7 +15,7 @@
 | YAML валиден | `ruby -ryaml -e 'YAML.load_file("project.yml"); YAML.load_file(".github/workflows/build-ios.yml")'` | всегда |
 | XcodeGen читает проект | `xcodegen dump --type summary` или `xcodegen generate` | если установлен XcodeGen |
 | Сборка | `xcodebuild … build` как в CI | если есть Xcode; иначе — CI после push (с разрешения пользователя) |
-| Unit-тесты | `xcodebuild test …` | после KC-003 |
+| Unit-тесты | `xcodebuild … test` (см. выше) или шаг CI | всегда при изменении Swift |
 | Diff | `git diff --stat`, `git status` — нет лишних файлов, секретов, `*.xcodeproj` | всегда |
 | Приватность | поиск `print(`, `os_log`, `Logger` в изменённых файлах — нет `localIdentifier`, токенов, payload | всегда при изменении Swift |
 | Старые имена | `rg "ScreenshotSweep\|local\.sweep" .` — только исторические упоминания в документации и имя GitHub-репозитория | после переименований |
@@ -26,6 +27,7 @@
 2. Карточка «Katana не подключена»; блок «Техническое»: Connector Core — planned, Capability Lab — planned.
 3. В авиарежиме Dashboard ведёт себя так же (сети нет и не требуется).
 4. «Разобрать скриншоты» открывает Screenshot Cleanup.
+5. «Возможности устройства»: Фото — untested; Текущая геолокация, Движение, Локальные уведомления, Фоновая геолокация — planned; Здоровье (HealthKit) — missing entitlement. Никаких запросов разрешений.
 
 ## Ручной регрессионный чек-лист Screenshot Cleanup
 

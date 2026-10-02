@@ -93,6 +93,30 @@
 - **Статус:** accepted (KC-002)
 - **Решение:** вся работа v0.1 ведётся в ветке `feature/katana-connector-v0.1`; каждая KC-задача — отдельный коммит; один Draft PR в `main`, который не сливается до выполнения критериев v0.1.
 
+## D-016 Трёхмерная модель capability
+
+- **Статус:** accepted (KC-003); уточняет формат статуса из D-007
+- **Контекст:** одного поля `status` недостаточно: «фича ещё не реализована», «пользователь запретил» и «проверка упала» — независимые факты.
+- **Решение:** состояние capability (`CapabilitySnapshot`) — три независимых измерения:
+  - `availability` — может ли сборка предложить возможность: `available` / `planned` / `missing_entitlement` / `unsupported_device`;
+  - `authorization` — системное разрешение: `unknown` (не проверялось) / `not_required` / `not_requested` / `granted` / `limited` / `denied` / `restricted`;
+  - `probe_state` — результат ручного probe: `not_run` / `passed` / `failed`;
+  - плюс `checked_at` и `detail` (без пользовательских данных).
+  Wire values — стабильный snake_case; менять после релиза нельзя (закреплено тестами).
+- **Последствия:** Dashboard и capability report выводят итоговый статус из трёх полей; Capability Lab (KC-008) меняет только `probe_state`/`checked_at`/`detail`, проверки разрешений — только `authorization`.
+
+## D-017 CapabilityRegistry — единственный каталог
+
+- **Статус:** accepted (KC-003)
+- **Решение:** `CapabilityRegistry` — единственный упорядоченный каталог capabilities (`id`, пользовательское название, категория). Порядок стабилен и закреплён тестом. Состояние берётся из подменяемого `CapabilitySnapshotProviding`; сейчас — `StaticCapabilitySnapshotProvider` с декларированными начальными состояниями (photos — available; healthKit, coreNFC — missing_entitlement; остальные — planned; везде `authorization: unknown`, `probe_state: not_run`). Registry — значение (struct), создаётся в `KatanaConnectorApp` и передаётся вниз; не singleton. Не запрашивает разрешений, не вызывает системные API и сеть, не хранит токены.
+- **Последствия:** добавление capability = case в `CapabilityID` + строка в каталоге + начальное состояние; тесты не дадут забыть одно из трёх.
+
+## D-018 Unit-тесты ядра без host app
+
+- **Статус:** accepted (KC-003)
+- **Решение:** target `KatanaConnectorTests` (XCTest, `bundle.unit-test`) компилирует `Sources/Core` напрямую вместе с тестами — без host application и без зависимости от UI. Тесты запускаются в CI на iOS Simulator до unsigned device-сборки; симулятор выбирается динамически (новейший iOS runtime, первый iPhone из `xcrun simctl list devices available`).
+- **Последствия:** `Sources/Core` обязан компилироваться без UIKit/SwiftUI/Photos. Тесты фич с UI/PhotoKit потребуют отдельного решения (host app).
+
 ---
 
 ## Открытые вопросы

@@ -48,15 +48,33 @@
 ```json
 {
   "reported_at": "2026-10-02T12:00:00Z",
-  "app_version": "0.1.0",
+  "device": {
+    "device_id": "<server-assigned>",
+    "display_name": "iPhone",
+    "app_version": "0.1.0",
+    "system_version": "18.0",
+    "connection_state": "connected",
+    "last_seen_at": "2026-10-02T12:00:00Z"
+  },
   "capabilities": [
-    { "id": "screenshots.cleanup", "status": "available", "version": 1 },
-    { "id": "<probe_id>", "status": "denied" }
+    { "id": "photos", "availability": "available", "authorization": "granted", "probe_state": "passed", "checked_at": "2026-10-02T11:59:00Z" },
+    { "id": "health_kit", "availability": "missing_entitlement", "authorization": "unknown", "probe_state": "not_run" }
   ]
 }
 ```
 
-`status`: `available` | `not_determined` | `denied` | `restricted` | `limited` | `unsupported` | `error`. Без пользовательских данных.
+Каждая capability описывается тремя независимыми измерениями (D-016); wire values совпадают с моделями в `Sources/Core` и закреплены unit-тестами:
+
+| Поле | Значения |
+|---|---|
+| `id` | `photos`, `camera`, `vision_ocr`, `files`, `current_location`, `background_location`, `motion`, `local_notifications`, `bluetooth`, `local_network`, `contacts`, `calendar`, `reminders`, `face_id`, `microphone`, `speech`, `health_kit`, `core_nfc` |
+| `availability` | `available`, `planned`, `missing_entitlement`, `unsupported_device` |
+| `authorization` | `unknown`, `not_required`, `not_requested`, `granted`, `limited`, `denied`, `restricted` |
+| `probe_state` | `not_run`, `passed`, `failed` |
+| `checked_at` | время последней проверки, опционально |
+| `detail` | короткий технический код/пояснение без пользовательских данных, опционально |
+
+`device` — `ConnectorDeviceSummary`; `connection_state`: `unpaired`, `pairing`, `connected`, `revoked`, `error`. Функции Connector (например, Screenshot Cleanup) — не capabilities; они сообщают о себе событиями.
 
 ### 4. Event batch (Connector → API)
 

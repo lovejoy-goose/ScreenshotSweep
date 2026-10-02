@@ -1,21 +1,41 @@
 # Архитектура
 
-## Текущее состояние (после KC-002)
+## Текущее состояние (после KC-003)
 
-Один application target `KatanaConnector` (Bundle ID `app.katana.connector`), iOS 16+, SwiftUI, проект генерируется XcodeGen из `project.yml`. Модули — папки (D-013).
+Один application target `KatanaConnector` (Bundle ID `app.katana.connector`) и unit-test target `KatanaConnectorTests`, iOS 16+, SwiftUI, проект генерируется XcodeGen из `project.yml`. Модули — папки (D-013).
 
 ```
 Sources/
 ├── App/
-│   ├── KatanaConnectorApp.swift      @main, создаёт SweepStore, RootView
+│   ├── KatanaConnectorApp.swift      @main, создаёт SweepStore и CapabilityRegistry, RootView
 │   └── RootView.swift                NavigationStack, AppRoute → экраны функций
+├── Core/                             только Foundation; без UI, PhotoKit, сети, Keychain
+│   ├── Capabilities/
+│   │   ├── CapabilityID.swift        18 стабильных идентификаторов (snake_case wire values)
+│   │   ├── CapabilityModels.swift    Availability / Authorization / ProbeState, Category, Descriptor, Snapshot
+│   │   └── CapabilityRegistry.swift  каталог + CapabilitySnapshotProviding + статический provider
+│   └── Connector/
+│       └── ConnectorModels.swift     ConnectorConnectionState, ConnectorDeviceSummary, ConnectorJSON
 └── Features/
     ├── Dashboard/
-    │   └── DashboardView.swift       стартовый экран: состояние подключения, функции, техблок
+    │   └── DashboardView.swift       подключение, «Разобрать скриншоты», возможности из registry, техблок
     └── ScreenshotCleanup/
         ├── SweepStore.swift          авторизация PhotoKit, выборка, решения, undo, удаление
         └── ScreenshotCleanupViews.swift  ScreenshotCleanupView (вход в функцию), SweepView, ReviewView и др.
+Tests/
+└── KatanaConnectorTests/             XCTest; компилирует Sources/Core напрямую, без host app (D-018)
 ```
+
+### Capability model (D-016, D-017)
+
+```
+CapabilityRegistry (struct, создаётся в App)
+├── catalog: [CapabilityDescriptor]        id + title + category, стабильный порядок
+└── provider: CapabilitySnapshotProviding  сейчас Static…; позже — реальные проверки / Capability Lab
+        └── snapshot(for:) → CapabilitySnapshot { availability × authorization × probe_state, checked_at, detail }
+```
+
+Dashboard показывает итоговый статус, выведенный из трёх измерений: `planned` / `missing entitlement` / `unsupported` по `availability`, а для `available` — `untested` / `passed` / `failed` по `probe_state`.
 
 Навигация: `RootView` → `DashboardView` → `NavigationLink(value: AppRoute.screenshotCleanup)` → `ScreenshotCleanupView`. Возврат — кнопка «Главная» в навбаре.
 
@@ -47,7 +67,7 @@ Sources/
 | Модуль | Ответственность | Зависит от |
 |---|---|---|
 | `App` | Точка входа, навигация, композиция зависимостей | все |
-| `ConnectorCore` | Модели: `Capability`, `CapabilityStatus`, `ConnectorEvent`, `PairingState`, `DeviceInfo`; протоколы сервисов | — |
+| `ConnectorCore` (`Sources/Core`) | Есть: capability-модели, `CapabilityRegistry`, `ConnectorConnectionState`, `ConnectorDeviceSummary`. Будут: `ConnectorEvent`, протоколы сервисов | — |
 | `Pairing` | Разбор QR-payload, обмен pairing-кода на device token, revoke | `ConnectorCore`, `APIClient`, `Keychain` |
 | `Keychain` | Обёртка над Security framework для device token | — |
 | `EventQueue` | Persistent-очередь событий: запись до отправки, повтор, дедупликация по `event_id` | `ConnectorCore` |
