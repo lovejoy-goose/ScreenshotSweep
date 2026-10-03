@@ -120,7 +120,7 @@ Accept: application/json
 POST {base_url}/api/connector/capabilities/report
 ```
 
-Отправляется автоматически один раз за запуск приложения (при старте или возвращении в foreground) и по кнопке «Синхронизировать». Реальных probes и запросов разрешений нет: отправляются текущие значения `CapabilityRegistry`. Тело ответа не разбирается; успешный ответ обновляет локальное «последняя синхронизация».
+Отправляется автоматически один раз за запуск приложения (при старте или возвращении в foreground), по кнопке «Синхронизировать» и после каждого завершённого probe Capability Lab (если Katana подключена; при ошибке сети результат остаётся на iPhone и уйдёт со следующим отчётом). Отправляются текущие значения `CapabilityRegistry`, включая сохранённые результаты Capability Lab (`camera`, `current_location`, `motion`, `local_notifications`). Никаких изображений, координат, данных движения, текста уведомлений и сырых ошибок. Тело ответа не разбирается; успешный ответ обновляет локальное «последняя синхронизация».
 
 ```json
 {
@@ -148,7 +148,7 @@ POST {base_url}/api/connector/capabilities/report
 | `authorization` | `unknown`, `not_required`, `not_requested`, `granted`, `limited`, `denied`, `restricted` |
 | `probe_state` | `not_run`, `passed`, `failed` |
 | `checked_at` | время последней проверки, опускается, если нет |
-| `detail` | короткий технический код без пользовательских данных, опускается, если нет |
+| `detail` | безопасный код результата Capability Lab, опускается, если нет: `camera_frame_received`, `location_fix_received`, `motion_sample_received`, `test_notification_scheduled`, `permission_denied`, `permission_restricted`, `unavailable`, `timed_out`, `cancelled`, `system_error` (D-035). Никогда не локализованный текст и не сырая ошибка |
 
 `device` — `ConnectorDeviceSummary` (`last_seen_at` опускается, если нет); `connection_state`: `unpaired`, `pairing`, `connected`, `revoked`, `error`. Функции Connector (например, Screenshot Cleanup) — не capabilities; они сообщают о себе событиями.
 

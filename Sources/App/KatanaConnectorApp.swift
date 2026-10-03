@@ -11,11 +11,20 @@ struct KatanaConnectorApp: App {
     // Reads saved pairing credentials from Keychain (no permission prompt, no network).
     @StateObject private var pairingCoordinator: PairingCoordinator
     @StateObject private var deliveryCoordinator: EventDeliveryCoordinator
+    @StateObject private var capabilityLab: CapabilityLabCoordinator
     private let capabilityRegistry: CapabilityRegistry
 
     init() {
         let tokenStore = KeychainTokenStore()
-        let registry = CapabilityRegistry()
+        // Probes only touch the system when the user taps a probe button in Capability Lab.
+        let lab = CapabilityLabCoordinator(store: .applicationSupport(), probes: [
+            CameraProbe(system: SystemCameraAccess()),
+            CurrentLocationProbe(system: SystemLocationAccess()),
+            MotionProbe(system: SystemMotionAccess()),
+            LocalNotificationsProbe(system: SystemNotificationAccess()),
+        ])
+        // The registry reads the same snapshot store, so reports and Dashboard see probe results.
+        let registry = lab.registry
         let pairing = PairingCoordinator(client: URLSessionPairingClient(), store: tokenStore)
         let delivery = EventDeliveryCoordinator(api: URLSessionConnectorAPIClient(store: tokenStore),
                                                 queue: EventQueue(store: .applicationSupport()),
@@ -23,12 +32,17 @@ struct KatanaConnectorApp: App {
                                                 syncState: UserDefaultsSyncStateStore())
         delivery.onUnauthorized = { [weak pairing] in pairing?.markRequiresRepair() }
         let session = CleanupSessionRecorder(sink: delivery)
+        // Saved locally first; then a capability report if Katana is connected.
+        lab.onSnapshotsChanged = { [weak delivery] in
+            Task { await delivery?.reportCapabilities() }
+        }
 
         capabilityRegistry = registry
         _sweepStore = StateObject(wrappedValue: SweepStore(session: session))
         _cleanupSession = StateObject(wrappedValue: session)
         _pairingCoordinator = StateObject(wrappedValue: pairing)
         _deliveryCoordinator = StateObject(wrappedValue: delivery)
+        _capabilityLab = StateObject(wrappedValue: lab)
     }
 
     var body: some Scene {
@@ -38,13 +52,18 @@ struct KatanaConnectorApp: App {
                 .environmentObject(pairingCoordinator)
                 .environmentObject(deliveryCoordinator)
                 .environmentObject(cleanupSession)
+                .environmentObject(capabilityLab)
                 .task {
+                    // Status read only: no prompts, no probes.
+                    await capabilityLab.refreshAuthorizations()
                     await deliveryCoordinator.prepare()
                     deliveryCoordinator.appBecameActive()
                 }
         }
         .onChange(of: scenePhase) { phase in
-            if phase == .active { deliveryCoordinator.appBecameActive() }
+            guard phase == .active else { return }
+            deliveryCoordinator.appBecameActive()
+            Task { await capabilityLab.refreshAuthorizations() }
         }
     }
 }

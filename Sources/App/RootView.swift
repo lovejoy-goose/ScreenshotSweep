@@ -25,6 +25,8 @@ struct RootView: View {
                         ScreenshotCleanupView()
                     case .pairing:
                         PairingView()
+                    case .capabilityLab:
+                        CapabilityLabView()
                     }
                 }
         }

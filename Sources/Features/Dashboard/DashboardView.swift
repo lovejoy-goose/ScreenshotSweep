@@ -5,10 +5,12 @@ struct DashboardView: View {
     let registry: CapabilityRegistry
     @EnvironmentObject var pairing: PairingCoordinator
     @EnvironmentObject var delivery: EventDeliveryCoordinator
+    // Observed only to re-render when probe results change; never starts probes from here.
+    @EnvironmentObject var lab: CapabilityLabCoordinator
     @State private var confirmingDisconnect = false
 
     private static let highlighted: [CapabilityID] = [
-        .photos, .currentLocation, .motion, .localNotifications, .backgroundLocation, .healthKit,
+        .photos, .camera, .currentLocation, .motion, .localNotifications, .backgroundLocation, .healthKit,
     ]
 
     var body: some View {
@@ -51,19 +53,22 @@ struct DashboardView: View {
                 NavigationLink(value: AppRoute.screenshotCleanup) {
                     Label("Разобрать скриншоты", systemImage: "photo.on.rectangle.angled")
                 }
+                NavigationLink(value: AppRoute.capabilityLab) {
+                    Label("Capability Lab", systemImage: "checklist")
+                }
             }
 
             Section("Возможности устройства") {
                 ForEach(Self.highlighted, id: \.self) { id in
                     LabeledContent(registry.descriptor(for: id).title,
-                                   value: Self.statusText(registry.snapshot(for: id)))
+                                   value: Self.statusText(lab.snapshot(for: id)))
                 }
             }
             .font(.footnote)
 
             Section("Техническое") {
                 LabeledContent("Connector Core", value: "pairing + events")
-                LabeledContent("Capability Lab", value: "planned")
+                LabeledContent("Capability Lab", value: "4 probes")
             }
             .font(.footnote)
         }

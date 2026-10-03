@@ -70,6 +70,14 @@ jobs:
           test -d "$APP"
           # The custom URL scheme must be registered in the built app.
           plutil -extract CFBundleURLTypes.0.CFBundleURLSchemes.0 raw -o - "$APP/Info.plist" | grep -qx "katana-connector"
+          # Usage descriptions for camera, When-In-Use location and motion must be present...
+          for key in NSCameraUsageDescription NSLocationWhenInUseUsageDescription NSMotionUsageDescription NSPhotoLibraryUsageDescription; do
+            plutil -extract "$key" xml1 -o - "$APP/Info.plist" > /dev/null
+          done
+          # ...and no Always location, background modes or entitlements.
+          for key in NSLocationAlwaysUsageDescription NSLocationAlwaysAndWhenInUseUsageDescription UIBackgroundModes; do
+            if plutil -extract "$key" xml1 -o - "$APP/Info.plist" > /dev/null 2>&1; then echo "Unexpected $key"; exit 1; fi
+          done
           rm -rf Payload && mkdir Payload
           cp -R "$APP" Payload/
           zip -qry KatanaConnector.ipa Payload

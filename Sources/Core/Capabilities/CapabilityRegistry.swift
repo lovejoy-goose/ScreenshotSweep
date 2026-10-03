@@ -1,7 +1,7 @@
 import Foundation
 
-/// Source of capability state. The static provider is used until real providers
-/// (system authorization checks, Capability Lab probes) replace it.
+/// Source of capability state. In the app this is `CapabilitySnapshotStore` (declared defaults
+/// overridden by stored Capability Lab results); tests may use the static provider directly.
 protocol CapabilitySnapshotProviding: Sendable {
     func snapshot(for id: CapabilityID) -> CapabilitySnapshot
 }
@@ -13,11 +13,14 @@ struct StaticCapabilitySnapshotProvider: CapabilitySnapshotProviding {
         switch id {
         case .photos:
             availability = .available
+        case .camera, .currentLocation, .motion, .localNotifications:
+            // Implemented in Capability Lab; the real device check may turn this into
+            // `unsupported_device` (CapabilityLabCoordinator.refreshAuthorizations).
+            availability = .available
         case .healthKit, .coreNFC:
             availability = .missingEntitlement
-        case .camera, .visionOCR, .files, .currentLocation, .backgroundLocation, .motion,
-             .localNotifications, .bluetooth, .localNetwork, .contacts, .calendar, .reminders,
-             .faceID, .microphone, .speech:
+        case .visionOCR, .files, .backgroundLocation, .bluetooth, .localNetwork, .contacts,
+             .calendar, .reminders, .faceID, .microphone, .speech:
             availability = .planned
         }
         return CapabilitySnapshot(id: id, availability: availability, authorization: .unknown,

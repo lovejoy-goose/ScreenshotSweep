@@ -35,6 +35,7 @@
 - Каждое новое разрешение = новый `INFOPLIST_KEY_*Usage Description` в `project.yml` + запись в `docs/DECISIONS.md`.
 - Dashboard не запрашивает разрешений. Доступ к фото — только кнопкой «Разрешить доступ к фото» внутри Screenshot Cleanup (D-033); камера — только «Сканировать QR».
 - Custom URL scheme (D-032) только открывает экран: никаких удалений, pairing, сети, flush, credentials и запросов разрешений по ссылке.
+- Capability Lab (D-034, D-035): каждый probe — только своей кнопкой и только своё разрешение; геолокация только When In Use (Always-ключей и API нет); кадры, координаты и данные движения не покидают адаптеры (Void-API); в snapshot — только безопасные коды `CapabilityProbeDetail`.
 
 ## Безопасная модель удаления (PhotoKit)
 

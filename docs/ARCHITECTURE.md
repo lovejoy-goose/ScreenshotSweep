@@ -1,16 +1,21 @@
 # Архитектура
 
-## Текущее состояние (после KC-007)
+## Текущее состояние (после KC-008)
 
 Один application target `KatanaConnector` (Bundle ID `app.katana.connector`) и unit-test target `KatanaConnectorTests`, iOS 16+, SwiftUI, проект генерируется XcodeGen из `project.yml`. Модули — папки (D-013), границы фреймворков — D-024.
 
 ```
 Sources/
 ├── App/
-│   ├── KatanaConnectorApp.swift      @main: собирает SweepStore, CleanupSessionRecorder, PairingCoordinator, EventDeliveryCoordinator; scenePhase → appBecameActive
+│   ├── KatanaConnectorApp.swift      @main: собирает SweepStore, CleanupSessionRecorder, PairingCoordinator, EventDeliveryCoordinator, CapabilityLabCoordinator; scenePhase → appBecameActive + refreshAuthorizations
 │   └── RootView.swift                NavigationStack(path: AppNavigator.path), onOpenURL; pairing connected → delivery.pairingDidConnect
 ├── Core/
-│   ├── Capabilities/                 CapabilityID, модели состояния, CapabilityRegistry          (Foundation)
+│   ├── Capabilities/
+│   │   ├── CapabilityID / CapabilityModels / CapabilityRegistry   каталог и модели состояния          (Foundation)
+│   │   ├── CapabilityProbeModels.swift   коды detail, mapping статусов, протоколы адаптеров (Void-API) (Foundation)
+│   │   ├── CapabilityProbes.swift        CameraProbe, CurrentLocationProbe, MotionProbe, LocalNotificationsProbe (Foundation)
+│   │   ├── CapabilitySnapshotStore.swift JSON-файл snapshots; provider реестра                     (Foundation)
+│   │   └── CapabilityLabCoordinator.swift один запуск на probe, таймаут, отмена, refresh без запросов (Combine)
 │   ├── Connector/ConnectorModels.swift   ConnectorConnectionState, ConnectorDeviceSummary, ConnectorJSON (Foundation)
 │   ├── Pairing/
 │   │   ├── PairingModels.swift       секреты (redacted), policy, payload, request/response, PairingCredentials(+requires_repair) (Foundation)
@@ -40,10 +45,26 @@ Sources/
 ├── Features/
 │   ├── Dashboard/DashboardView.swift     подключение / повторное подключение, синхронизация, функции, возможности
 │   ├── Pairing/                      PairingView, QRScannerView, PairingConfirmationView (предупреждение о замене)
+│   ├── CapabilityLab/                CapabilityLabView + адаптеры: Camera (AVFoundation), Location (CoreLocation),
+│   │                                 Motion (CoreMotion), Notification (UserNotifications), ProbeOneShot
 │   └── ScreenshotCleanup/            SweepStore (+ уведомления recorder), ScreenshotCleanupViews, CleanupCompletionView
 └── Shared/MessageView.swift
 Config/KatanaConnector-Info.plist     CFBundleURLTypes (katana-connector), объединяется с генерируемым Info.plist
 Tests/KatanaConnectorTests/           XCTest без host app; mock URLProtocol/ConnectorAPI, in-memory token store, временные каталоги
+```
+
+### Capability Lab (D-034, D-035)
+
+```
+Dashboard «Capability Lab» → CapabilityLabView: 4 карточки, у каждой своя кнопка
+  → CapabilityLabCoordinator.start(id)        (второй тап — ничего; другие probes не трогаются)
+      availability (без запроса) → unsupported_device ⇒ failed/unavailable
+      authorization (без запроса) → not_requested ⇒ свой системный запрос (только здесь)
+      denied/restricted ⇒ failed/permission_*;  granted/limited ⇒ check() против таймаута
+      адаптер: один кадр / одна фиксация / одно событие / одно уведомление → Void
+  → CapabilitySnapshotStore.save (атомарно) → Dashboard (тот же store через registry)
+  → onSnapshotsChanged → EventDeliveryCoordinator.reportCapabilities (если подключено)
+Запуск / foreground → refreshAuthorizations: только availability + authorization, без запросов и probes
 ```
 
 ### Custom URL scheme (D-032)

@@ -12,8 +12,8 @@
 | KC-004 | QR pairing and Keychain | **done** | KC-003 |
 | KC-005 | Persistent event queue and authenticated API client | **done** | KC-003, KC-004 |
 | KC-006 | Screenshot Cleanup event integration | **done** | KC-005 |
-| KC-007 | Custom URL scheme | **in review** (ждёт CI и проверки обеих ссылок на iPhone) | KC-002, KC-004 |
-| KC-008 | Capability Lab | planned | KC-003, KC-005 |
+| KC-007 | Custom URL scheme | **done** | KC-002, KC-004 |
+| KC-008 | Capability Lab | **in review** (ждёт CI и ручной проверки на iPhone) | KC-003, KC-005 |
 | KC-009 | End-to-end validation | planned | KC-004 … KC-008 |
 
 ---
@@ -152,7 +152,7 @@
 
 ## KC-007 Custom URL scheme
 
-- **Статус:** in review — код, тесты и документация готовы; переводится в done после зелёного CI и проверки обеих ссылок на реальном iPhone
+- **Статус:** done
 - **Цель:** безопасно открывать разрешённые экраны Connector из Katana PWA.
 - **Scope:**
   - `CFBundleURLTypes` (`katana-connector`) в `Config/KatanaConnector-Info.plist`, `INFOPLIST_FILE` в `project.yml`, проверка схемы в CI;
@@ -169,21 +169,33 @@
   - [x] Ссылка не удаляет, не начинает pairing, не передаёт credentials, не запрашивает разрешения, не отправляет события и не запускает flush.
   - [x] Единое состояние навигации; повтор ссылки не дублирует экран; невалидная ссылка ничего не меняет; поведение при открытом modal детерминировано.
   - [x] Unit-тесты по 25 обязательным сценариям.
-  - [ ] Тесты и device-сборка (с проверкой схемы в Info.plist) зелёные в CI.
-  - [ ] Обе ссылки проверены на реальном iPhone (холодный и тёплый старт, ручной чек-лист в `TESTING.md`).
+  - [x] Тесты и device-сборка (с проверкой схемы в Info.plist) зелёные в CI: commit `ba3d5c28b98920cd793503a5854f7cbd6131ed2b`, run https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37153466168 (110 unit-тестов).
+  - [x] Обе ссылки проверены на реальном iPhone 2026-10-04 (подтверждено пользователем): `screenshot_cleanup` открывает Screenshot Cleanup, `pairing` — безопасный экран подключения; холодный и тёплый запуск работают; камера, PhotoKit, pairing, удаление и отправка событий автоматически не запускаются; кнопка и QR развёрнуты в Katana.
 
 ## KC-008 Capability Lab
 
-- **Статус:** planned
-- **Цель:** набор независимых ручных probes для проверки возможностей устройства.
-- **Scope:** утвердить список probes (Q-8, без deferred-возможностей из D-008); каркас probe (запуск по кнопке, своё разрешение, статус); экран Capability Lab; включение статусов в capability report.
-- **Вне scope:** HealthKit, Core NFC, background location, extensions, push.
+- **Статус:** in review — код, тесты и документация готовы; переводится в done после зелёного CI и ручной проверки на iPhone
+- **Цель:** четыре независимых ручных probes — Camera, Current Location (When In Use), Motion, Local Notifications (Q-8, D-034).
+- **Scope:**
+  - Core (Foundation): `CapabilityProbeDetail`, `CapabilityProbeError`, нейтральные статусы и `CapabilityAuthorizationMapping`, протоколы адаптеров с Void-API, `CameraProbe`/`CurrentLocationProbe`/`MotionProbe`/`LocalNotificationsProbe`, `CapabilitySnapshotStore`; `CapabilityLabCoordinator` (Combine);
+  - Features: адаптеры AVFoundation/CoreLocation/CoreMotion/UserNotifications, `CapabilityLabView`;
+  - Dashboard: кнопка «Capability Lab», состояния четырёх probes; `AppRoute.capabilityLab` (без URL);
+  - `NSLocationWhenInUseUsageDescription`, `NSMotionUsageDescription`, обновлённый текст камеры; проверки ключей в CI;
+  - capability report после probe; refresh статусов при запуске/foreground без запросов.
+- **Вне scope:** Bluetooth, микрофон/речь, фоновая геолокация, геозоны, HealthKit, Core NFC, Contacts/Calendar/Reminders, Local Network, Share Extension, push/APNs, BackgroundTasks, зависимости, URL для Capability Lab, KC-009.
+- **Документы:** `PRODUCT.md`, `API.md`, `ARCHITECTURE.md`, `DECISIONS.md` (D-034, D-035), `TESTING.md`.
 - **Зависимости:** KC-003, KC-005.
 - **Acceptance criteria:**
-  - [ ] Каждый probe запускается только вручную и запрашивает только своё разрешение.
-  - [ ] Отказ/ошибка одного probe не влияет на другие.
-  - [ ] Результат probe не содержит пользовательских данных.
-  - [ ] Для каждого нового разрешения добавлен usage description и запись в `DECISIONS.md`.
+  - [x] Четыре probe; каждый — своей кнопкой, своё разрешение, один запуск одновременно, таймаут, отмена, обновляет только свой snapshot.
+  - [x] Единое строгое отображение статусов; wire values `CapabilityAuthorization` не изменены; `detail` — только коды `CapabilityProbeDetail`.
+  - [x] Persistent store: только snapshots и версия, атомарно, без падений на битых данных, переживает перезапуск; реестр — единственный каталог.
+  - [x] Foreground: только availability/authorization, без запросов и probes, без подделки результатов.
+  - [x] Privacy: кадры, координаты, данные движения и текст уведомлений не сохраняются, не показываются и не отправляются; Always-геолокации нет.
+  - [x] Report после probe; ошибка сети не теряет результат; probes не создают событий.
+  - [x] Dashboard: кнопка и состояния, без запросов и запуска probes; HealthKit/Core NFC — missing_entitlement; background_location — planned.
+  - [x] Unit-тесты по 40 обязательным сценариям (mocks, без hardware).
+  - [ ] Тесты и device-сборка (с проверкой usage descriptions) зелёные в CI.
+  - [ ] Ручная проверка на реальном iPhone по чек-листу `TESTING.md`.
 
 ## KC-009 End-to-end validation
 

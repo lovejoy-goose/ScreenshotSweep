@@ -51,7 +51,14 @@ final class CapabilityRegistryTests: XCTestCase {
             XCTAssertEqual(registry.snapshot(for: id).availability, .missingEntitlement, "\(id)")
         }
 
-        let planned = CapabilityID.allCases.filter { ![.photos, .healthKit, .coreNFC].contains($0) }
+        // Implemented as Capability Lab probes (KC-008): honest default is available;
+        // the device check may turn it into unsupported_device.
+        let lab: [CapabilityID] = [.camera, .currentLocation, .motion, .localNotifications]
+        for id in lab {
+            XCTAssertEqual(registry.snapshot(for: id).availability, .available, "\(id)")
+        }
+
+        let planned = CapabilityID.allCases.filter { !([.photos, .healthKit, .coreNFC] + lab).contains($0) }
         XCTAssertTrue(planned.contains(.backgroundLocation))
         for id in planned {
             XCTAssertEqual(registry.snapshot(for: id).availability, .planned, "\(id)")

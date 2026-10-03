@@ -1,9 +1,11 @@
 import Foundation
 
-/// Screens reachable by navigation. Shared by Dashboard links and incoming URLs.
+/// Screens reachable by navigation. Shared by Dashboard links and incoming URLs
+/// (Capability Lab is reachable from Dashboard only; there is no URL for it).
 enum AppRoute: Hashable, Sendable {
     case screenshotCleanup
     case pairing
+    case capabilityLab
 }
 
 /// Features a `katana-connector://open` link may open. Wire values are part of URL v1.

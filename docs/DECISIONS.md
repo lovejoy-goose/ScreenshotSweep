@@ -205,6 +205,21 @@
 - **Статус:** accepted (KC-007); уточняет D-014
 - **Решение:** вход в Screenshot Cleanup (с Dashboard или по ссылке) только читает статус доступа. Если он `notDetermined`, показывается экран «Доступ к скриншотам» с кнопкой «Разрешить доступ к фото»; системный запрос — только по ней. Уже выданный доступ ничего не запрашивает. Модель удаления не изменилась.
 
+## D-034 Capability Lab — четыре ручных probes
+
+- **Статус:** accepted (KC-008); закрывает Q-8, уточняет D-007
+- **Решение:** Capability Lab содержит ровно четыре независимых probe: `camera` (один кадр), `current_location` (только When In Use, одна фиксация), `motion` (одно событие Motion & Fitness), `local_notifications` (одно локальное тестовое уведомление). Каждый запускается только своей кнопкой, запрашивает только своё разрешение (и только если оно ещё не запрашивалось), выполняется не более одного раза одновременно, ограничен таймаутом (камера 10 с, геолокация 20 с, движение 15 с, уведомления 10 с; системный диалог разрешения не ограничен), отменяется кнопкой «Отменить» и обновляет только свой snapshot. Открывается с Dashboard; URL для неё нет. Bluetooth, микрофон/речь, фоновая геолокация, геозоны, HealthKit, Core NFC, Contacts/Calendar/Reminders, Local Network, расширения, push и BackgroundTasks не входят.
+  Отображение статусов — единая таблица `CapabilityAuthorizationMapping`: камера/движение `notDetermined→not_requested`, `authorized→granted`, `denied→denied`, `restricted→restricted`; геолокация `authorizedWhenInUse`/`authorizedAlways→granted`; уведомления `provisional`/`ephemeral→limited`. Выключенные системно Службы геолокации считаются `denied`.
+  Начальная `availability` четырёх capabilities — `available`; проверка устройства (без запросов) может заменить её на `unsupported_device`.
+- **Последствия:** новые Info.plist-ключи `NSLocationWhenInUseUsageDescription`, `NSMotionUsageDescription`; текст камеры охватывает QR и Capability Lab. Ключей Always-геолокации, background modes и entitlements нет.
+
+## D-035 Privacy boundary и хранение результатов probes
+
+- **Статус:** accepted (KC-008)
+- **Решение:** адаптеры (`Features/CapabilityLab`) — единственное место с AVFoundation (для probe), CoreLocation, CoreMotion и UserNotifications; их методы, которые касаются данных, возвращают `Void` — кадр, координаты (а также высота, скорость, курс, точность) и данные движения физически не покидают адаптер и никогда не читаются. В snapshot попадают только `availability`, `authorization`, `probe_state`, `checked_at` и `detail` из фиксированного набора кодов (`CapabilityProbeDetail`); `localizedDescription` и сырые ошибки не сохраняются. Тестовое уведомление: идентификатор `app.katana.connector.capability-lab.test.<uuid>`, заголовок «Katana Connector», текст «Тестовое уведомление Capability Lab.», через 5 с; probe подтверждает разрешение и успешное планирование, но не показ.
+  Хранение: `Application Support/KatanaConnector/Capabilities/capability-snapshots.json` — `{"version":1,"snapshots":[…]}`, атомарная запись, file protection until first unlock; неизвестная версия, битый JSON или неизвестный `CapabilityID` → файл переносится в `capability-snapshots.corrupt-…json`, используются значения по умолчанию, без падения. Store — provider реестра, поэтому реестр остаётся единственным каталогом; store не создаёт новых ID.
+  После probe: snapshot сохраняется → Dashboard обновляется из того же store → если Katana подключена, отправляется capability report; ошибка сети не теряет результат. Probes не создают событий и не трогают очередь. При запуске и возврате в foreground обновляются только `availability` и `authorization` — без запросов, без probe, `probe_state`/`checked_at`/`detail` не меняются.
+
 ---
 
 ## Открытые вопросы
@@ -219,4 +234,4 @@
 | Q-6 | ~~Семантика завершения cleanup-сессии~~ — решено в D-031 | KC-006 |
 | Q-9 | Что делать с событиями чужих scope и legacy: ручная отправка после подтверждения или удаление по кнопке | после v0.1 |
 | Q-7 | ~~Имя URL scheme и список действий~~ — решено в D-032 | KC-007 |
-| Q-8 | Состав probes Capability Lab | KC-008 |
+| Q-8 | ~~Состав probes Capability Lab~~ — решено в D-034 | KC-008 |

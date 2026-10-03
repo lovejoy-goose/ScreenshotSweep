@@ -183,6 +183,8 @@ final class MockConnectorAPI: ConnectorAPI, @unchecked Sendable {
     private var _maxInFlight = 0
     private var _sentBatches: [[ConnectorEvent]] = []
     private var _reportCalls = 0
+    private var _reportedCapabilities: [[CapabilitySnapshot]] = []
+    var reportedCapabilities: [[CapabilitySnapshot]] { lock.lock(); defer { lock.unlock() }; return _reportedCapabilities }
     private var _scope: ConnectionScope? = EventFixtures.scope
     private var _sentScopes: [ConnectionScope] = []
 
@@ -215,7 +217,7 @@ final class MockConnectorAPI: ConnectorAPI, @unchecked Sendable {
     }
 
     func reportCapabilities(_ capabilities: [CapabilitySnapshot]) async throws {
-        lock.lock(); _reportCalls += 1; lock.unlock()
+        lock.lock(); _reportCalls += 1; _reportedCapabilities.append(capabilities); lock.unlock()
         try await reportHandler()
     }
 
