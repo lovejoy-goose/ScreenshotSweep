@@ -31,6 +31,10 @@ struct RootView: View {
                         ActivityJournalView()
                     case .locationCheckIn:
                         LocationCheckInView()
+                    case .reminders:
+                        RemindersView()
+                    case .reminderDraft(let id):
+                        ReminderDraftView(draftID: id)
                     }
                 }
         }

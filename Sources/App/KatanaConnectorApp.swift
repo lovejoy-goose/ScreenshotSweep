@@ -16,6 +16,8 @@ struct KatanaConnectorApp: App {
     @StateObject private var activityJournal: ActivityJournalCoordinator
     // Location is touched only by «Определить текущее место» (When In Use, one fix).
     @StateObject private var locationCheckIn: LocationCheckInCoordinator
+    // Drafts are loaded and notifications created only by buttons on the draft screen.
+    @StateObject private var reminders: ReminderCoordinator
     private let capabilityRegistry: CapabilityRegistry
 
     init() {
@@ -30,7 +32,8 @@ struct KatanaConnectorApp: App {
         // The registry reads the same snapshot store, so reports and Dashboard see probe results.
         let registry = lab.registry
         let pairing = PairingCoordinator(client: URLSessionPairingClient(), store: tokenStore)
-        let delivery = EventDeliveryCoordinator(api: URLSessionConnectorAPIClient(store: tokenStore),
+        let apiClient = URLSessionConnectorAPIClient(store: tokenStore)
+        let delivery = EventDeliveryCoordinator(api: apiClient,
                                                 queue: EventQueue(store: .applicationSupport()),
                                                 registry: registry,
                                                 syncState: UserDefaultsSyncStateStore())
@@ -45,6 +48,8 @@ struct KatanaConnectorApp: App {
                                                  system: SystemActivityAccess(), sink: delivery)
         let checkIn = LocationCheckInCoordinator(store: CheckInHistoryFile.applicationSupportStore(),
                                                  system: SystemCheckInLocationAccess(), sink: delivery)
+        let reminderCoordinator = ReminderCoordinator(store: ReminderStoreFile.applicationSupportStore(), fetcher: apiClient,
+                                                      notifications: SystemReminderNotifications(), sink: delivery)
 
         capabilityRegistry = registry
         _sweepStore = StateObject(wrappedValue: SweepStore(session: session))
@@ -54,6 +59,7 @@ struct KatanaConnectorApp: App {
         _capabilityLab = StateObject(wrappedValue: lab)
         _activityJournal = StateObject(wrappedValue: journal)
         _locationCheckIn = StateObject(wrappedValue: checkIn)
+        _reminders = StateObject(wrappedValue: reminderCoordinator)
     }
 
     var body: some Scene {
@@ -66,6 +72,7 @@ struct KatanaConnectorApp: App {
                 .environmentObject(capabilityLab)
                 .environmentObject(activityJournal)
                 .environmentObject(locationCheckIn)
+                .environmentObject(reminders)
                 .task {
                     // Status read only: no prompts, no probes.
                     await capabilityLab.refreshAuthorizations()
@@ -79,6 +86,8 @@ struct KatanaConnectorApp: App {
                 deliveryCoordinator.appBecameActive()
                 Task { await capabilityLab.refreshAuthorizations() }
                 Task { await activityJournal.appDidBecomeActive() }
+                // Events of reminders that could not be queued earlier, with their original IDs.
+                Task { await reminders.retryPendingEvents() }
             case .background:
                 // iOS does not let the app observe in the background; the session says so honestly.
                 Task { await activityJournal.appDidEnterBackground() }

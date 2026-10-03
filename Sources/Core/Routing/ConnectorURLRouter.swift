@@ -8,6 +8,9 @@ enum AppRoute: Hashable, Sendable {
     case capabilityLab
     case activityJournal
     case locationCheckIn
+    case reminders
+    /// Screen of one Katana reminder draft. Opening it loads nothing by itself (D-041).
+    case reminderDraft(UUID)
 }
 
 /// Features a `katana-connector://open` link may open. Wire values are part of URL v1.
@@ -23,18 +26,21 @@ enum ConnectorURLFeature: String, CaseIterable, Sendable {
     }
 }
 
-/// Screens a v2 link may open (D-042).
+/// Screens a v2 link may open (D-042). `reminderDraft` carries only the opaque draft ID —
+/// never the reminder text.
 enum ConnectorURLDestination: Equatable, Sendable {
     case activityJournal
     case locationCheckIn
+    case reminderDraft(UUID)
 
     /// Wire values of `feature` in URL v2.
-    static let featureValues = ["activity_journal", "location_check_in"]
+    static let featureValues = ["activity_journal", "location_check_in", "reminder"]
 
     var featureValue: String {
         switch self {
         case .activityJournal: return "activity_journal"
         case .locationCheckIn: return "location_check_in"
+        case .reminderDraft: return "reminder"
         }
     }
 
@@ -43,6 +49,7 @@ enum ConnectorURLDestination: Equatable, Sendable {
         switch self {
         case .activityJournal: return [.activityJournal]
         case .locationCheckIn: return [.locationCheckIn]
+        case .reminderDraft(let id): return [.reminders, .reminderDraft(id)]
         }
     }
 }
@@ -96,7 +103,9 @@ enum ConnectorURLRouter {
     }
 
     static func url(for destination: ConnectorURLDestination) -> URL {
-        URL(string: "\(scheme)://\(host)?v=\(version2)&feature=\(destination.featureValue)")!
+        var text = "\(scheme)://\(host)?v=\(version2)&feature=\(destination.featureValue)"
+        if case .reminderDraft(let id) = destination { text += "&draft_id=\(id.uuidString.lowercased())" }
+        return URL(string: text)!
     }
 
     static func parse(_ url: URL) throws -> ConnectorURLAction {
@@ -150,6 +159,10 @@ enum ConnectorURLRouter {
         case "activity_journal", "location_check_in":
             guard draftValue == nil else { throw ConnectorURLError.invalidDraftID }
             return featureValue == "activity_journal" ? .activityJournal : .locationCheckIn
+        case "reminder":
+            guard let draftValue else { throw ConnectorURLError.missingDraftID }
+            guard let id = canonicalUUID(draftValue) else { throw ConnectorURLError.invalidDraftID }
+            return .reminderDraft(id)
         default:
             // v1 features exist, but not in this version.
             if ConnectorURLFeature(rawValue: featureValue) != nil { throw ConnectorURLError.unsupportedVersion }

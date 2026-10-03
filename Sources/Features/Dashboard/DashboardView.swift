@@ -59,6 +59,9 @@ struct DashboardView: View {
                 NavigationLink(value: AppRoute.locationCheckIn) {
                     Label("Location Check-in", systemImage: "mappin.and.ellipse")
                 }
+                NavigationLink(value: AppRoute.reminders) {
+                    Label("Локальные напоминания", systemImage: "bell")
+                }
                 NavigationLink(value: AppRoute.capabilityLab) {
                     Label("Capability Lab", systemImage: "checklist")
                 }
@@ -75,6 +78,7 @@ struct DashboardView: View {
             Section("Техническое") {
                 LabeledContent("Connector Core", value: "pairing + events")
                 LabeledContent("Capability Lab", value: "4 probes")
+                LabeledContent("Контекст и действия", value: "v0.2")
             }
             .font(.footnote)
         }

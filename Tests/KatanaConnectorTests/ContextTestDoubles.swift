@@ -168,3 +168,79 @@ final class MockCheckInLocationSystem: CheckInLocationSystem, @unchecked Sendabl
         return fix
     }
 }
+
+// MARK: - Reminders
+
+final class MockReminderDraftFetcher: ReminderDraftFetching, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _requested: [UUID] = []
+    var result: Result<ReminderDraft, ReminderDraftError>
+
+    init(result: Result<ReminderDraft, ReminderDraftError>) {
+        self.result = result
+    }
+
+    var requested: [UUID] { lock.lock(); defer { lock.unlock() }; return _requested }
+
+    func fetchReminderDraft(id: UUID) async throws -> ReminderDraft {
+        lock.lock(); _requested.append(id); lock.unlock()
+        return try result.get()
+    }
+}
+
+final class MockReminderNotifications: ReminderNotificationSystem, @unchecked Sendable {
+    private let lock = NSLock()
+    let log = CallLog()
+    var status: NotificationPermission = .authorized
+    var statusAfterRequest: NotificationPermission = .authorized
+    var scheduleError: Error?
+    private var _pending: [String: ReminderNotificationRequest] = [:]
+    /// Notifications of other parts of the app (must never be touched).
+    private var _foreign: Set<String> = ["app.katana.connector.capability-lab.test.0001", "other.app.notification"]
+
+    var pending: [String: ReminderNotificationRequest] { lock.lock(); defer { lock.unlock() }; return _pending }
+    var foreign: Set<String> { lock.lock(); defer { lock.unlock() }; return _foreign }
+
+    func permission() async -> NotificationPermission {
+        lock.lock(); defer { lock.unlock() }
+        return status
+    }
+
+    func requestAuthorization() async -> NotificationPermission {
+        log.hit("request")
+        lock.lock(); defer { lock.unlock() }
+        status = statusAfterRequest
+        return status
+    }
+
+    func schedule(_ request: ReminderNotificationRequest) async throws {
+        log.hit("schedule")
+        if let scheduleError { throw scheduleError }
+        lock.lock(); _pending[request.identifier] = request; lock.unlock()
+    }
+
+    func removePending(identifier: String) async {
+        log.hit("remove")
+        lock.lock(); _pending[identifier] = nil; _foreign.remove(identifier); lock.unlock()
+    }
+}
+
+enum ReminderFixtures {
+    static let draftID = UUID(uuidString: "6F1C2D3E-4B5A-4C6D-8E7F-90A1B2C3D4E5")!
+    static let title = "Позвонить в сервис"
+    static let body = "Уточнить время записи"
+
+    static func draft(fireIn: TimeInterval = 3600, expiresIn: TimeInterval = 600) -> ReminderDraft {
+        ReminderDraft(draftID: draftID, title: title, body: body,
+                      fireAt: Fixtures.pairedAt.addingTimeInterval(fireIn),
+                      expiresAt: Fixtures.pairedAt.addingTimeInterval(expiresIn))
+    }
+
+    static func responseJSON(id: String = "6f1c2d3e-4b5a-4c6d-8e7f-90a1b2c3d4e5", title: String = ReminderFixtures.title,
+                             body: String? = ReminderFixtures.body, fireAt: String = "2026-09-21T15:13:20Z",
+                             expiresAt: String = "2026-09-21T14:23:20Z") -> String {
+        let encodedTitle = String(decoding: try! JSONEncoder().encode(title), as: UTF8.self)
+        let encodedBody = body.map { String(decoding: try! JSONEncoder().encode($0), as: UTF8.self) } ?? "null"
+        return #"{"draft_id":"\#(id)","title":\#(encodedTitle),"body":\#(encodedBody),"fire_at":"\#(fireAt)","expires_at":"\#(expiresAt)"}"#
+    }
+}
