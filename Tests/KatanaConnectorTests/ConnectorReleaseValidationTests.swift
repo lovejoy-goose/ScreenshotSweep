@@ -439,11 +439,13 @@ final class ConnectorReleaseValidationTests: XCTestCase {
 
         let client = URLSessionConnectorAPIClient(store: InMemoryTokenStore(credentials: Fixtures.credentials),
                                                   transport: URLSessionConnectorTransport(session: MockURLProtocol.makeSession()),
-                                                  appVersion: "0.1.0", systemVersion: "18.0", now: { Fixtures.pairedAt })
+                                                  appVersion: "0.1.0-lab-report", systemVersion: "18.0", now: { Fixtures.pairedAt })
         MockURLProtocol.reply = .response(status: 200, body: Data(#"{"ok":true}"#.utf8))
         try await client.reportCapabilities(lab.registry.snapshots())
 
-        let body = try XCTUnwrap(MockURLProtocol.requests(to: reportPath).first?.body)
+        // A fire-and-forget report of an earlier test may land in the shared mock too: pick this client's own request.
+        let body = try XCTUnwrap(MockURLProtocol.requests(to: reportPath)
+            .first { String(decoding: $0.body, as: UTF8.self).contains("0.1.0-lab-report") }?.body)
         assertClean(body, "capabilities/report")
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
         XCTAssertEqual(Set(json.keys), ["reported_at", "device", "capabilities"])
