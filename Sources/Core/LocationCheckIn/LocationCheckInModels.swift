@@ -46,7 +46,9 @@ enum CoordinateRounding {
         let decimal = NSDecimalNumber(string: String(value), locale: Locale(identifier: "en_US_POSIX"))
         let behavior = NSDecimalNumberHandler(roundingMode: .plain, scale: Int16(fractionDigits), raiseOnExactness: false,
                                               raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)
-        return decimal.rounding(accordingToBehavior: behavior).doubleValue
+        let rounded = decimal.rounding(accordingToBehavior: behavior)
+        // `doubleValue` is not exact (55.76 → 55.760000000000005); the shortest decimal spelling is.
+        return Double(rounded.stringValue) ?? rounded.doubleValue
     }
 
     /// Decimal places in the shortest spelling of `value`.
