@@ -1,6 +1,6 @@
 # Архитектура
 
-## Текущее состояние (после KC-006)
+## Текущее состояние (после KC-007)
 
 Один application target `KatanaConnector` (Bundle ID `app.katana.connector`) и unit-test target `KatanaConnectorTests`, iOS 16+, SwiftUI, проект генерируется XcodeGen из `project.yml`. Модули — папки (D-013), границы фреймворков — D-024.
 
@@ -8,7 +8,7 @@
 Sources/
 ├── App/
 │   ├── KatanaConnectorApp.swift      @main: собирает SweepStore, CleanupSessionRecorder, PairingCoordinator, EventDeliveryCoordinator; scenePhase → appBecameActive
-│   └── RootView.swift                NavigationStack, AppRoute; pairing connected → delivery.pairingDidConnect
+│   └── RootView.swift                NavigationStack(path: AppNavigator.path), onOpenURL; pairing connected → delivery.pairingDidConnect
 ├── Core/
 │   ├── Capabilities/                 CapabilityID, модели состояния, CapabilityRegistry          (Foundation)
 │   ├── Connector/ConnectorModels.swift   ConnectorConnectionState, ConnectorDeviceSummary, ConnectorJSON (Foundation)
@@ -25,6 +25,9 @@ Sources/
 │   │   ├── ConnectorAPIError.swift   классификация статусов                                  (Foundation)
 │   │   ├── ConnectorAPIModels.swift  check / capability report / event batch, строгая проверка results (Foundation)
 │   │   └── ConnectorAPIClient.swift  протокол ConnectorAPI + Bearer-клиент                   (Foundation)
+│   ├── Routing/
+│   │   ├── ConnectorURLRouter.swift  AppRoute, URL v1 parser (open: screenshot_cleanup | pairing)   (Foundation)
+│   │   └── AppNavigator.swift        единое состояние навигации; ссылка → [route]                   (Combine)
 │   ├── Cleanup/
 │   │   ├── CleanupSessionSummary.swift   агрегат сессии + CleanupSessionTracker (ID снимков только в памяти) (Foundation)
 │   │   └── CleanupSessionRecorder.swift  явное завершение → одно событие; без доступа к медиатеке (Combine)
@@ -39,8 +42,22 @@ Sources/
 │   ├── Pairing/                      PairingView, QRScannerView, PairingConfirmationView (предупреждение о замене)
 │   └── ScreenshotCleanup/            SweepStore (+ уведомления recorder), ScreenshotCleanupViews, CleanupCompletionView
 └── Shared/MessageView.swift
+Config/KatanaConnector-Info.plist     CFBundleURLTypes (katana-connector), объединяется с генерируемым Info.plist
 Tests/KatanaConnectorTests/           XCTest без host app; mock URLProtocol/ConnectorAPI, in-memory token store, временные каталоги
 ```
+
+### Custom URL scheme (D-032)
+
+```
+Katana PWA → katana-connector://open?v=1&feature=… → iOS → SwiftUI onOpenURL (холодный и тёплый старт)
+  → AppNavigator.handle → ConnectorURLRouter.parse (строго, offline)
+      невалидно → ничего не меняется
+      .open(feature) → path = [route] (если уже так — без изменений)
+  → тот же экран, что с Dashboard: ScreenshotCleanupView / PairingView
+     PhotoKit — только «Разрешить доступ к фото»; камера — только «Сканировать QR»
+```
+
+`AppNavigator` знает только про `path`: у него нет ссылок на pairing, очередь, API, PhotoKit или камеру.
 
 ### Screenshot Cleanup → Katana (D-031)
 
@@ -128,7 +145,7 @@ Dashboard показывает итоговый статус, выведенны
 | `Keychain` | Обёртка над Security framework для device token | — |
 | `EventQueue` | Persistent-очередь событий: запись до отправки, повтор, дедупликация по `event_id` | `ConnectorCore` |
 | `APIClient` | HTTPS-запросы к Katana API, авторизация токеном, разбор ответов | `ConnectorCore`, `Keychain` |
-| `URLRouter` | Разбор и валидация входящих URL, маршрутизация в функции | `ConnectorCore` |
+| `Routing` (`Sources/Core/Routing`) | `ConnectorURLRouter` (разбор URL v1) и `AppNavigator` (единое состояние навигации) | — |
 | `Features/ScreenshotCleanup` | Исходный ScreenshotSweep (`SweepStore`, views) + формирование итогов сессии | `ConnectorCore`, `EventQueue` (через протокол) |
 | `Features/CapabilityLab` | Независимые probes, отчёт о capabilities | `ConnectorCore` |
 
@@ -142,7 +159,7 @@ Dashboard показывает итоговый статус, выведенны
 ### Поток данных Screenshot Cleanup
 
 1. Пользователь открывает Screenshot Cleanup с Dashboard (позже — и по URL из PWA, KC-007).
-2. При входе в функцию запрашивается доступ к фото (только сейчас, не при запуске).
+2. Вход в функцию только читает статус доступа; системный запрос — по кнопке «Разрешить доступ к фото» (D-033).
 3. Первое решение начинает сессию (`session_id`, `started_at`).
 4. Разбор как раньше; удаление — только через `deleteCandidates()` с двойным подтверждением.
 5. «Завершить разбор» → «Завершить» формирует `screenshot_cleanup.completed` (только счётчики и время) и **атомарно** пишет его в очередь текущего подключения (D-029, D-031).

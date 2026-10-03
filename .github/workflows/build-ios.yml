@@ -68,6 +68,8 @@ jobs:
         run: |
           APP=build/Build/Products/Release-iphoneos/KatanaConnector.app
           test -d "$APP"
+          # The custom URL scheme must be registered in the built app.
+          plutil -extract CFBundleURLTypes.0.CFBundleURLSchemes.0 raw -o - "$APP/Info.plist" | grep -qx "katana-connector"
           rm -rf Payload && mkdir Payload
           cp -R "$APP" Payload/
           zip -qry KatanaConnector.ipa Payload

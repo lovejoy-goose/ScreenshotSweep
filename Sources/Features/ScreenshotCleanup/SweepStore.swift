@@ -51,12 +51,17 @@ final class SweepStore: NSObject, ObservableObject {
 
     // MARK: Authorization
 
-    func start() {
+    /// Reads the current status without any system prompt (on entering the feature).
+    func refreshAccess() {
         updateAccess(PHPhotoLibrary.authorizationStatus(for: .readWrite))
-        if access == .notDetermined {
-            PHPhotoLibrary.requestAuthorization(for: .readWrite) { status in
-                Task { @MainActor in self.updateAccess(status) }
-            }
+    }
+
+    /// Shows the system prompt. Only called from «Разрешить доступ к фото» inside the feature,
+    /// never on entering it — also not when it was opened by a URL.
+    func requestAccess() {
+        guard access == .notDetermined else { return }
+        PHPhotoLibrary.requestAuthorization(for: .readWrite) { status in
+            Task { @MainActor in self.updateAccess(status) }
         }
     }
 

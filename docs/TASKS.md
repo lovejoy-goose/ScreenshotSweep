@@ -11,8 +11,8 @@
 | KC-003 | Connector Core models and Capability Registry | **done** | KC-002 |
 | KC-004 | QR pairing and Keychain | **done** | KC-003 |
 | KC-005 | Persistent event queue and authenticated API client | **done** | KC-003, KC-004 |
-| KC-006 | Screenshot Cleanup event integration | **in review** (ждёт CI и доставки настоящего события в Katana) | KC-005 |
-| KC-007 | Custom URL scheme | planned | KC-002, KC-004 |
+| KC-006 | Screenshot Cleanup event integration | **done** | KC-005 |
+| KC-007 | Custom URL scheme | **in review** (ждёт CI и проверки обеих ссылок на iPhone) | KC-002, KC-004 |
 | KC-008 | Capability Lab | planned | KC-003, KC-005 |
 | KC-009 | End-to-end validation | planned | KC-004 … KC-008 |
 
@@ -130,7 +130,7 @@
 
 ## KC-006 Screenshot Cleanup event integration
 
-- **Статус:** in review — код, тесты и документация готовы; переводится в done после зелёного CI и доставки настоящего события в Katana
+- **Статус:** done
 - **Цель:** подключить Screenshot Cleanup к persistent event queue и впервые доставить реальное пользовательское событие в Katana; привязать очередь к подключению (Q-5).
 - **Scope:**
   - `ConnectionScope`, очередь v2 со scope, миграция v1 → `legacy_events`, flush только текущего scope, проверка scope в API-клиенте (D-029, D-030);
@@ -147,20 +147,30 @@
   - [x] Событие только после явного завершения; один `session_id` → максимум одно событие; отмена/выход ничего не создают; сначала очередь, потом flush; offline/ошибка очереди не мешают завершению и не влияют на PhotoKit.
   - [x] UI: «Результат сохранён для Katana» / «Результат отправлен в Katana» / безопасная ошибка; без event_id, scope, токенов и сырых ошибок.
   - [x] Unit-тесты по 18 обязательным сценариям.
-  - [ ] Тесты и device-сборка зелёные в CI.
-  - [ ] Настоящее событие `screenshot_cleanup.completed` доставлено в Katana с реального iPhone (ручной чек-лист в `TESTING.md`).
+  - [x] Тесты и device-сборка зелёные в CI: commit `920dd82d8817dd19ae630e9c9a130a724c5cfc20`, run https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37054897708 (95 unit-тестов).
+  - [x] Настоящее событие доставлено с реального iPhone 2026-10-03 (подтверждено пользователем): Katana получила ровно одно `screenshot_cleanup.completed` с `reviewed_count=5`, `kept_count=5`, `deletion_requested_count=0`, `deletion_completed=true`; payload содержал только 7 разрешённых полей; фото, PHAsset identifiers и метаданные не передавались; результат виден в Settings → Devices → iPhone Connector.
 
 ## KC-007 Custom URL scheme
 
-- **Статус:** planned
-- **Цель:** открывать функции Connector из Katana PWA.
-- **Scope:** имя схемы и формат (Q-7); регистрация `CFBundleURLTypes` в `project.yml`; `URLRouter` с whitelist действий (например, открыть Screenshot Cleanup, открыть экран подключения); строгая валидация; обработка URL при холодном и тёплом старте.
-- **Вне scope:** Universal Links; любые разрушительные действия по URL.
+- **Статус:** in review — код, тесты и документация готовы; переводится в done после зелёного CI и проверки обеих ссылок на реальном iPhone
+- **Цель:** безопасно открывать разрешённые экраны Connector из Katana PWA.
+- **Scope:**
+  - `CFBundleURLTypes` (`katana-connector`) в `Config/KatanaConnector-Info.plist`, `INFOPLIST_FILE` в `project.yml`, проверка схемы в CI;
+  - `Core/Routing`: `AppRoute`, `ConnectorURLFeature`, `ConnectorURLAction`, `ConnectorURLError`, `ConnectorURLRouter` (строгий парсер v1), `AppNavigator` (единое состояние навигации);
+  - `RootView`: `NavigationStack(path:)` + `onOpenURL` (холодный и тёплый старт);
+  - Screenshot Cleanup: PhotoKit только по кнопке «Разрешить доступ к фото» (D-033), чтобы вход по ссылке ничего не запрашивал;
+  - решения D-032, D-033; формат в `API.md`.
+- **Вне scope:** Universal Links, Associated Domains, remote commands, автоматический pairing, передача секретов, новые разрешения, зависимости, изменения event queue и PhotoKit deletion flow, KC-008.
+- **Документы:** `API.md`, `ARCHITECTURE.md`, `DECISIONS.md` (D-032, D-033), `TESTING.md`.
 - **Зависимости:** KC-002, KC-004.
 - **Acceptance criteria:**
-  - [ ] Известные действия открывают нужный экран; неизвестные/битые URL безопасно игнорируются.
-  - [ ] URL не может инициировать удаление, pairing без подтверждения, или передать токен.
-  - [ ] Unit-тесты парсера URL (валидные, невалидные, слишком длинные, лишние параметры).
+  - [x] Схема зарегистрирована; `open?v=1&feature=screenshot_cleanup|pairing` открывает те же экраны, что Dashboard.
+  - [x] Строгая валидация (длина, ASCII, scheme/host/path, без user/password/port/fragment, `v` и `feature` ровно по разу, без других параметров и пустых значений); pairing QR роутером не принимается.
+  - [x] Ссылка не удаляет, не начинает pairing, не передаёт credentials, не запрашивает разрешения, не отправляет события и не запускает flush.
+  - [x] Единое состояние навигации; повтор ссылки не дублирует экран; невалидная ссылка ничего не меняет; поведение при открытом modal детерминировано.
+  - [x] Unit-тесты по 25 обязательным сценариям.
+  - [ ] Тесты и device-сборка (с проверкой схемы в Info.plist) зелёные в CI.
+  - [ ] Обе ссылки проверены на реальном iPhone (холодный и тёплый старт, ручной чек-лист в `TESTING.md`).
 
 ## KC-008 Capability Lab
 

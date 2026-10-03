@@ -23,6 +23,8 @@ targets:
         PRODUCT_NAME: KatanaConnector
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
+        # Base plist with CFBundleURLTypes (scheme katana-connector, URL v1); generated keys are merged in.
+        INFOPLIST_FILE: Config/KatanaConnector-Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: Katana Connector
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
