@@ -14,6 +14,8 @@ struct KatanaConnectorApp: App {
     @StateObject private var capabilityLab: CapabilityLabCoordinator
     // Motion is touched only by the buttons inside Activity Journal.
     @StateObject private var activityJournal: ActivityJournalCoordinator
+    // Location is touched only by «Определить текущее место» (When In Use, one fix).
+    @StateObject private var locationCheckIn: LocationCheckInCoordinator
     private let capabilityRegistry: CapabilityRegistry
 
     init() {
@@ -41,6 +43,8 @@ struct KatanaConnectorApp: App {
 
         let journal = ActivityJournalCoordinator(store: ActivityJournalFile.applicationSupportStore(),
                                                  system: SystemActivityAccess(), sink: delivery)
+        let checkIn = LocationCheckInCoordinator(store: CheckInHistoryFile.applicationSupportStore(),
+                                                 system: SystemCheckInLocationAccess(), sink: delivery)
 
         capabilityRegistry = registry
         _sweepStore = StateObject(wrappedValue: SweepStore(session: session))
@@ -49,6 +53,7 @@ struct KatanaConnectorApp: App {
         _deliveryCoordinator = StateObject(wrappedValue: delivery)
         _capabilityLab = StateObject(wrappedValue: lab)
         _activityJournal = StateObject(wrappedValue: journal)
+        _locationCheckIn = StateObject(wrappedValue: checkIn)
     }
 
     var body: some Scene {
@@ -60,6 +65,7 @@ struct KatanaConnectorApp: App {
                 .environmentObject(cleanupSession)
                 .environmentObject(capabilityLab)
                 .environmentObject(activityJournal)
+                .environmentObject(locationCheckIn)
                 .task {
                     // Status read only: no prompts, no probes.
                     await capabilityLab.refreshAuthorizations()
@@ -76,6 +82,8 @@ struct KatanaConnectorApp: App {
             case .background:
                 // iOS does not let the app observe in the background; the session says so honestly.
                 Task { await activityJournal.appDidEnterBackground() }
+                // An unconfirmed check-in fix is not kept while the app is in the background.
+                locationCheckIn.discardPreview()
             default:
                 break
             }

@@ -7,6 +7,7 @@ enum AppRoute: Hashable, Sendable {
     case pairing
     case capabilityLab
     case activityJournal
+    case locationCheckIn
 }
 
 /// Features a `katana-connector://open` link may open. Wire values are part of URL v1.
@@ -25,13 +26,15 @@ enum ConnectorURLFeature: String, CaseIterable, Sendable {
 /// Screens a v2 link may open (D-042).
 enum ConnectorURLDestination: Equatable, Sendable {
     case activityJournal
+    case locationCheckIn
 
     /// Wire values of `feature` in URL v2.
-    static let featureValues = ["activity_journal"]
+    static let featureValues = ["activity_journal", "location_check_in"]
 
     var featureValue: String {
         switch self {
         case .activityJournal: return "activity_journal"
+        case .locationCheckIn: return "location_check_in"
         }
     }
 
@@ -39,6 +42,7 @@ enum ConnectorURLDestination: Equatable, Sendable {
     var routes: [AppRoute] {
         switch self {
         case .activityJournal: return [.activityJournal]
+        case .locationCheckIn: return [.locationCheckIn]
         }
     }
 }
@@ -143,9 +147,9 @@ enum ConnectorURLRouter {
         guard let featureValue = parameters["feature"] else { throw ConnectorURLError.missingFeature }
         let draftValue = parameters["draft_id"]
         switch featureValue {
-        case "activity_journal":
+        case "activity_journal", "location_check_in":
             guard draftValue == nil else { throw ConnectorURLError.invalidDraftID }
-            return .activityJournal
+            return featureValue == "activity_journal" ? .activityJournal : .locationCheckIn
         default:
             // v1 features exist, but not in this version.
             if ConnectorURLFeature(rawValue: featureValue) != nil { throw ConnectorURLError.unsupportedVersion }

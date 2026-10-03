@@ -56,6 +56,9 @@ struct DashboardView: View {
                 NavigationLink(value: AppRoute.activityJournal) {
                     Label("Activity Journal", systemImage: "figure.walk")
                 }
+                NavigationLink(value: AppRoute.locationCheckIn) {
+                    Label("Location Check-in", systemImage: "mappin.and.ellipse")
+                }
                 NavigationLink(value: AppRoute.capabilityLab) {
                     Label("Capability Lab", systemImage: "checklist")
                 }

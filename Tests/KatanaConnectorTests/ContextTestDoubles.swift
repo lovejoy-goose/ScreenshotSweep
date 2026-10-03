@@ -133,3 +133,38 @@ final class MockActivitySystem: ActivitySystem, @unchecked Sendable {
 struct ImmediateSleeper: DeliverySleeper {
     func sleep(seconds: Double) async throws {}
 }
+
+// MARK: - Location Check-in
+
+final class MockCheckInLocationSystem: CheckInLocationSystem, @unchecked Sendable {
+    private let lock = NSLock()
+    let log = CallLog()
+    var servicesOn = true
+    var status: LocationPermission = .authorizedWhenInUse
+    var statusAfterRequest: LocationPermission = .authorizedWhenInUse
+    /// Fixed test coordinates (central Moscow); never real user data.
+    var fix = LocationFix(latitude: 55.755814, longitude: 37.617635, horizontalAccuracy: 42)
+    var fixError: CapabilityProbeError?
+    var hangsOnFix = false
+
+    func servicesEnabled() async -> Bool { log.hit("services"); return servicesOn }
+
+    func permission() async -> LocationPermission {
+        lock.lock(); defer { lock.unlock() }
+        return status
+    }
+
+    func requestWhenInUseAuthorization() async -> LocationPermission {
+        log.hit("requestWhenInUse")
+        lock.lock(); defer { lock.unlock() }
+        status = statusAfterRequest
+        return status
+    }
+
+    func currentFix() async throws -> LocationFix {
+        log.hit("fix")
+        if hangsOnFix { try await Task.sleep(nanoseconds: 60_000_000_000) }
+        if let fixError { throw fixError }
+        return fix
+    }
+}

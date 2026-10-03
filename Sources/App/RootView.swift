@@ -29,6 +29,8 @@ struct RootView: View {
                         CapabilityLabView()
                     case .activityJournal:
                         ActivityJournalView()
+                    case .locationCheckIn:
+                        LocationCheckInView()
                     }
                 }
         }
