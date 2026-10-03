@@ -3,9 +3,19 @@
 Нативное iOS-приложение-компаньон для Katana PWA: даёт Katana доступ к функциям iPhone, которых нет в браузере, и возвращает в Katana только агрегированные результаты. Продукт, архитектура, решения и план — в [`docs/`](docs/), правила работы — в [`CLAUDE.md`](CLAUDE.md).
 
 ```
-Katana PWA → QR pairing → credentials в Keychain → katana-connector:// ссылка → Screenshot Cleanup
+Katana PWA → QR pairing → credentials в Keychain → katana-connector:// ссылка → функция (по кнопке, с подтверждением)
            → persistent очередь (по подключению) → authenticated API → результат в Katana
 ```
+
+Текущий релиз — **v0.1.0** ([GitHub Release](https://github.com/lovejoy-goose/ScreenshotSweep/releases/tag/v0.1.0)). В работе — **v0.2 «Context & Actions»** (Draft PR, `docs/TASKS.md`).
+
+## Что добавляет v0.2 — Контекст и действия
+
+- **Activity Journal** — «Определить текущую активность» (ходьба, бег, велосипед, транспорт, неподвижно, неизвестно) и ручные сессии активности, пока приложение открыто. В Katana — только вид активности и длительности, после кнопки «Отправить в Katana». Время в фоне честно считается «неизвестно».
+- **Location Check-in** — «Определить текущее место» (только «При использовании», одна фиксация) → предпросмотр → «Приблизительно» (≈1 км) или «Точно» → отдельное подтверждение. Координаты до подтверждения живут только в памяти и после отправки стираются с экрана; высота, скорость и сырая точность не отправляются.
+- **Локальные напоминания из Katana** — ссылка `katana-connector://open?v=2&feature=reminder&draft_id=<uuid>` без текста; черновик загружается кнопкой по защищённому соединению, уведомление создаётся кнопкой «Создать напоминание» (только тогда — запрос разрешения). Повторы не создают дублей; любое напоминание Connector можно отменить. В Katana — только факты «запланировано»/«отменено», без текста.
+- **История** — у каждой функции свои последние результаты со статусом «ждёт отправки» / «отправлено» / «не принято»; доставка — та же offline-очередь.
+- Ссылки v2 `…v=2&feature=activity_journal` и `…v=2&feature=location_check_in` только открывают экраны.
 
 ## Что входит в v0.1
 
@@ -18,9 +28,10 @@ Katana PWA → QR pairing → credentials в Keychain → katana-connector:// с
 
 ## Граница приватности
 
-- В Katana **никогда** не уходят: фото, кадры, миниатюры, идентификаторы и имена файлов, EXIF, даты и геоданные снимков, координаты, данные движения, текст системных ошибок, токены и коды подключения.
+- В Katana **никогда** не уходят: фото, кадры, миниатюры, идентификаторы и имена файлов, EXIF, даты и геоданные снимков, сырые данные движения и временные ряды, высота/скорость/курс/этаж, текст системных ошибок, токены и коды подключения, текст напоминаний обратно в событиях.
+- Координаты уходят только в Location Check-in — после предпросмотра и подтверждения, округлёнными.
 - Токен — только в Keychain; в логи, файлы, UI и URL не попадает.
-- Разрешения запрашиваются только кнопкой внутри соответствующей функции, по одному.
+- Разрешения запрашиваются только кнопкой внутри соответствующей функции, по одному; ссылки ничего не запрашивают и не выполняют.
 - Медиатека меняется только после экрана проверки, подтверждения в приложении и системного диалога iOS; файлы уходят в «Недавно удалённые».
 
 ## Ограничения v0.1
@@ -28,7 +39,7 @@ Katana PWA → QR pairing → credentials в Keychain → katana-connector:// с
 - Нет фоновой доставки (BackgroundTasks, push): события отправляются при запуске, возврате в приложение, после нового события и по «Синхронизировать».
 - «Отключить на этом iPhone» не отзывает устройство на сервере — его нужно удалить в Katana вручную.
 - Одно активное подключение на iPhone; события другого или прежнего подключения хранятся и автоматически не отправляются.
-- Нет HealthKit, NFC, Bluetooth, фоновой геолокации и геозон, микрофона и речи, Share Extension, Universal Links.
+- Нет HealthKit, NFC, Bluetooth, фоновой геолокации и геозон, микрофона и речи, push, Share Extension, Universal Links, новых background modes и entitlements (и в v0.2).
 - Распространение — unsigned IPA + Sideloadly; с бесплатным Apple ID подпись действует 7 дней.
 
 ## Постоянный Bundle ID
@@ -41,6 +52,9 @@ Bundle ID — **`app.katana.connector`**, он не меняется. На нё�
 | Очередь событий | `Application Support/KatanaConnector/EventQueue/event-queue.json` |
 | Результаты Capability Lab | `Application Support/KatanaConnector/Capabilities/capability-snapshots.json` |
 | Время последней синхронизации | `UserDefaults`, ключ `connector.lastSuccessfulSyncAt` |
+| Activity Journal (v0.2) | `Application Support/KatanaConnector/ActivityJournal/activity-journal.json` |
+| История check-in без координат (v0.2) | `Application Support/KatanaConnector/LocationCheckIn/check-ins.json` |
+| Напоминания Connector (v0.2) | `Application Support/KatanaConnector/Reminders/reminders.json` |
 
 Эти идентификаторы закреплены unit-тестами. Старое приложение ScreenshotSweep (`local.sweep.ScreenshotSweep`) — отдельное приложение; данные из него не переносятся.
 
@@ -71,3 +85,4 @@ Workflow: `xcodegen generate` → unit-тесты на iOS Simulator → `xcodeb
 
 - Автоматические проверки — unit-тесты в CI (`Tests/KatanaConnectorTests`).
 - Полный ручной release checklist v0.1 (pairing, ссылки, cleanup, offline, kill, revoke, обновление, Capability Lab, приватность, smoke) — [`docs/TESTING.md`](docs/TESTING.md#release-checklist-v01).
+- Единая итоговая ручная проверка v0.2 — [`docs/TESTING.md`](docs/TESTING.md#release-checklist-v02-одна-итоговая-ручная-проверка). Промежуточные IPA v0.2 устанавливать не нужно.

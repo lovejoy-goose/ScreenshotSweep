@@ -68,12 +68,14 @@ final class ReminderTests: XCTestCase {
         XCTAssertEqual(ConnectorURLRouter.url(for: .reminderDraft(draftID)).absoluteString, lower)
 
         assertRejects("katana-connector://open?v=2&feature=reminder", .missingDraftID)
-        for bad in ["6f1c2d3e4b5a4c6d8e7f90a1b2c3d4e5", "{6f1c2d3e-4b5a-4c6d-8e7f-90a1b2c3d4e5}", "6f1c2d3e-4b5a-4c6d-8e7f-90a1b2c3d4e",
+        for bad in ["6f1c2d3e4b5a4c6d8e7f90a1b2c3d4e5", "6f1c2d3e-4b5a-4c6d-8e7f-90a1b2c3d4e",
                     "6f1c2d3e-4b5a-4c6d-8e7f-90a1b2c3d4e5f", "gf1c2d3e-4b5a-4c6d-8e7f-90a1b2c3d4e5", "6f1c2d3e-4b5a4-c6d-8e7f-90a1b2c3d4e5",
                     "not-a-uuid", "1"] {
             assertRejects("katana-connector://open?v=2&feature=reminder&draft_id=\(bad)", .invalidDraftID)
         }
         assertRejects("katana-connector://open?v=2&feature=reminder&draft_id=6f1c2d3e%2D4b5a-4c6d-8e7f-90a1b2c3d4e5", .malformed)
+        // Braces are not valid URL characters: rejected before the UUID check.
+        XCTAssertThrowsError(try ConnectorURLRouter.parse("katana-connector://open?v=2&feature=reminder&draft_id={6f1c2d3e-4b5a-4c6d-8e7f-90a1b2c3d4e5}"))
         assertRejects("\(lower)&draft_id=6f1c2d3e-4b5a-4c6d-8e7f-90a1b2c3d4e5", .duplicateParameter)
         assertRejects("katana-connector://open?v=2&feature=reminder&feature=reminder&draft_id=6f1c2d3e-4b5a-4c6d-8e7f-90a1b2c3d4e5",
                       .duplicateParameter)

@@ -1,13 +1,16 @@
 # Архитектура
 
-## Текущее состояние (после KC-008)
+## Текущее состояние (v0.2 — Context & Actions)
 
 Один application target `KatanaConnector` (Bundle ID `app.katana.connector`) и unit-test target `KatanaConnectorTests`, iOS 16+, SwiftUI, проект генерируется XcodeGen из `project.yml`. Модули — папки (D-013), границы фреймворков — D-024.
 
 ```
 Sources/
 ├── App/
-│   ├── KatanaConnectorApp.swift      @main: собирает SweepStore, CleanupSessionRecorder, PairingCoordinator, EventDeliveryCoordinator, CapabilityLabCoordinator; scenePhase → appBecameActive + refreshAuthorizations
+│   ├── KatanaConnectorApp.swift      @main: собирает SweepStore, CleanupSessionRecorder, PairingCoordinator, EventDeliveryCoordinator, CapabilityLabCoordinator,
+│   │                                 ActivityJournalCoordinator, LocationCheckInCoordinator, ReminderCoordinator (один API-клиент);
+│   │                                 scenePhase active → appBecameActive + refreshAuthorizations + activity resume + reminder events retry;
+│   │                                 background → activity suspend + сброс неподтверждённого check-in
 │   └── RootView.swift                NavigationStack(path: AppNavigator.path), onOpenURL; pairing connected → delivery.pairingDidConnect
 ├── Core/
 │   ├── Capabilities/
@@ -30,14 +33,25 @@ Sources/
 │   │   ├── ConnectorAPIError.swift   классификация статусов                                  (Foundation)
 │   │   ├── ConnectorAPIModels.swift  check / capability report / event batch, строгая проверка results (Foundation)
 │   │   └── ConnectorAPIClient.swift  протокол ConnectorAPI + Bearer-клиент                   (Foundation)
+│   ├── Storage/VersionedJSONFileStore.swift  общий JSON-файл v0.2: атомарно, file protection, без backup, quarantine, миграции; WholeSeconds (Foundation)
+│   ├── Activity/
+│   │   ├── ActivityModels.swift      категории, классификатор, ActivitySystem, snapshot, сессия (целые секунды), summary, файл v1 (Foundation)
+│   │   └── ActivityJournalCoordinator.swift  проверка по кнопке, сессия только в foreground, interrupted, подтверждение (Combine)
+│   ├── LocationCheckIn/
+│   │   ├── LocationCheckInModels.swift   точность, корзины, округление, LocationFix (redacted), CheckInPreview, история v1 (Foundation)
+│   │   └── LocationCheckInCoordinator.swift  When In Use по кнопке, предпросмотр ≤ 5 мин, подтверждение, очистка координат (Combine)
+│   ├── Reminders/
+│   │   ├── ReminderModels.swift      ReminderDraft (+ проверка ответа), typed errors, ReminderNotificationSystem, ReminderRecord, файл v1 (Foundation)
+│   │   └── ReminderCoordinator.swift загрузка по кнопке, создание по кнопке (разрешение только тут), отмена, повтор событий (Combine)
 │   ├── Routing/
-│   │   ├── ConnectorURLRouter.swift  AppRoute, URL v1 parser (open: screenshot_cleanup | pairing)   (Foundation)
+│   │   ├── ConnectorURLRouter.swift  AppRoute, URL v1 (screenshot_cleanup | pairing) и v2 (activity_journal | location_check_in | reminder + draft_id) (Foundation)
 │   │   └── AppNavigator.swift        единое состояние навигации; ссылка → [route]                   (Combine)
 │   ├── Cleanup/
 │   │   ├── CleanupSessionSummary.swift   агрегат сессии + CleanupSessionTracker (ID снимков только в памяти) (Foundation)
 │   │   └── CleanupSessionRecorder.swift  явное завершение → одно событие; без доступа к медиатеке (Combine)
 │   └── Events/
 │       ├── ConnectorEvent.swift      envelope + JSONValue, описания без payload               (Foundation)
+│       ├── ContextEvents.swift       ContextEventType (5 типов v0.2), ContextEventSchema (точные ключи), ConnectorEventSink (Foundation)
 │       ├── ConnectionScope.swift     канонический base_url + device_id                        (Foundation)
 │       ├── EventQueueStore.swift     JSON-файл v2, миграция v1 → legacy, атомарная запись, quarantine (Foundation)
 │       ├── EventQueue.swift          actor: FIFO по scope, дедупликация, batch ≤ 20, лимиты, rejected (Foundation)
@@ -47,11 +61,34 @@ Sources/
 │   ├── Pairing/                      PairingView, QRScannerView, PairingConfirmationView (предупреждение о замене)
 │   ├── CapabilityLab/                CapabilityLabView + адаптеры: Camera (AVFoundation), Location (CoreLocation),
 │   │                                 Motion (CoreMotion), Notification (UserNotifications), ProbeOneShot
-│   └── ScreenshotCleanup/            SweepStore (+ уведомления recorder), ScreenshotCleanupViews, CleanupCompletionView
-└── Shared/MessageView.swift
+│   ├── ScreenshotCleanup/            SweepStore (+ уведомления recorder), ScreenshotCleanupViews, CleanupCompletionView
+│   ├── ActivityJournal/              ActivityJournalView + SystemActivityAccess (CoreMotion → 6 флагов и уверенность)
+│   ├── LocationCheckIn/              LocationCheckInView + SystemCheckInLocationAccess (CoreLocation, requestLocation)
+│   └── Reminders/                    RemindersView, ReminderDraftView + SystemReminderNotifications (UserNotifications)
+└── Shared/                           MessageView, EventDeliveryStatusLabel («ждёт отправки» / «отправлено» / «не принято»)
 Config/KatanaConnector-Info.plist     CFBundleURLTypes (katana-connector), объединяется с генерируемым Info.plist
 Tests/KatanaConnectorTests/           XCTest без host app; mock URLProtocol/ConnectorAPI, in-memory token store, временные каталоги
 ```
+
+### Контекст и действия v0.2 (D-037…D-044)
+
+```
+Dashboard «Функции» / ссылка v2 (только навигация) → экран функции
+  Activity Journal:  «Определить текущую активность» → (Motion prompt, если не запрашивался) → одно чтение → категория
+                     → «Отправить в Katana» → activity.snapshot.completed
+                     «Начать сессию» → updates только в foreground → background: suspend (время → unknown)
+                     → «Завершить» (summary + event_id, на диск) → «Отправить в Katana» → activity.session.completed
+                     перезапуск с active-сессией → interrupted → «Завершить» / «Удалить без отправки»
+  Location Check-in: «Определить текущее место» → (When In Use prompt) → одна фиксация → CheckInPreview (память, ≤ 5 мин)
+                     → точность + label → «Отправить в Katana» → подтверждение → округление → location.check_in.created
+                     → координаты стёрты из состояния; история без координат
+  Reminders:         ссылка → [reminders, reminderDraft(id)] → «Загрузить напоминание» → GET reminder-drafts (Bearer)
+                     → «Создать напоминание» → (Notifications prompt) → UNNotificationRequest app.katana.connector.reminder.<id>
+                     → ReminderRecord (на диск) → reminder.local.scheduled; «Отменить» → reminder.local.cancelled
+  все события: ContextEventSchema → ConnectorEventSink (EventDeliveryCoordinator) → EventQueue v2 (scope) → flush → events/batch
+```
+
+Адаптеры (`Features/*`) — единственные места с CoreMotion, CoreLocation и UserNotifications; в Core попадают только нейтральные значения: шесть флагов и уверенность активности (без времени и истории), широта/долгота/горизонтальная точность (без высоты, скорости, курса, этажа, времени фиксации). Координаторы v0.2 не знают про API-клиент событий, токен и scope — только `ConnectorEventSink`; `ReminderCoordinator` дополнительно получает `ReminderDraftFetching` (тот же `URLSessionConnectorAPIClient`). 401 при загрузке черновика → `sink.reportUnauthorized()` → тот же путь, что 401 при доставке (D-027).
 
 ### Capability Lab (D-034, D-035)
 
@@ -169,6 +206,7 @@ Dashboard показывает итоговый статус, выведенны
 | `Routing` (`Sources/Core/Routing`) | `ConnectorURLRouter` (разбор URL v1) и `AppNavigator` (единое состояние навигации) | — |
 | `Features/ScreenshotCleanup` | Исходный ScreenshotSweep (`SweepStore`, views) + формирование итогов сессии | `ConnectorCore`, `EventQueue` (через протокол) |
 | `Features/CapabilityLab` | Независимые probes, отчёт о capabilities | `ConnectorCore` |
+| `Features/ActivityJournal`, `Features/LocationCheckIn`, `Features/Reminders` (v0.2) | Экраны и системные адаптеры функций «Контекст и действия» | `ConnectorCore` (координаторы, `ConnectorEventSink`) |
 
 Правила зависимостей:
 
