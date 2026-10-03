@@ -50,6 +50,7 @@
 - геолокация: только When In Use, одна фиксация, обновления остановлены; denied/restricted — без обновлений; координаты нигде не появляются; в `Sources` нет вызовов Always/фоновых обновлений/геозон;
 - движение: одно событие, обновления остановлены; denied/restricted — без обновлений; данные движения нигде не появляются; неподдерживаемое устройство честно отражается;
 - уведомления: запрос ровно один раз; одно тестовое уведомление; denied — ничего не планируется; provisional/ephemeral → `limited`; нейтральный текст и идентификатор; ошибка планирования → `system_error` без сырого текста;
+- гонки: устаревший refresh (заблокированный в чтении статуса) не перезаписывает результат probe — для всех четырёх, включая отказ и отмену; refresh во время probe ничего не пишет; свежий refresh после probe честно показывает `not_requested`; capability report после гонки согласован;
 - wire и конфигурация: точные коды `detail`, mapping статусов, round-trip файла, Info.plist-ключи When In Use/Motion/Camera, отсутствие Always/background modes/entitlements, сохранённая URL-схема, Core без hardware-фреймворков.
 - **CI:** шаг упаковки проверяет наличие `NSCameraUsageDescription`, `NSLocationWhenInUseUsageDescription`, `NSMotionUsageDescription`, `NSPhotoLibraryUsageDescription` и отсутствие `NSLocationAlways*`, `UIBackgroundModes` в собранном Info.plist.
 

@@ -18,6 +18,51 @@ enum MockCheck: Sendable {
     }
 }
 
+/// Blocks only the first call that reaches it until `open()`; later calls pass straight through.
+/// Used to hold a passive refresh inside its system status read.
+final class FirstCallGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var used = false
+    private var opened = false
+    private var waiting = false
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func passIfNeeded() async {
+        lock.lock()
+        if used || opened {
+            lock.unlock()
+            return
+        }
+        used = true
+        waiting = true
+        lock.unlock()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            lock.lock()
+            if opened {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                self.continuation = continuation
+                lock.unlock()
+            }
+        }
+    }
+
+    var isWaiting: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return waiting && !opened
+    }
+
+    func open() {
+        lock.lock()
+        opened = true
+        let pending = continuation
+        continuation = nil
+        lock.unlock()
+        pending?.resume()
+    }
+}
+
 /// Thread-safe counters shared by the mocks.
 final class CallLog: @unchecked Sendable {
     private let lock = NSLock()
@@ -44,7 +89,13 @@ final class MockCameraSystem: CameraSystem, @unchecked Sendable {
     let frameMarker = "FRAME-BYTES-0xCAFE"
 
     func hasCamera() async -> Bool { hasCameraValue }
-    func permission() async -> CameraPermission { status }
+    var permissionGate: FirstCallGate?
+    /// The value is read before the (optional) gate, like a real status read that is already in flight.
+    func permission() async -> CameraPermission {
+        let value = status
+        await permissionGate?.passIfNeeded()
+        return value
+    }
     func requestAccess() async {
         log.hit("request")
         status = statusAfterRequest
@@ -65,7 +116,12 @@ final class MockLocationSystem: LocationSystem, @unchecked Sendable {
     /// Stands for a real fix; the API cannot return it.
     let secretFix = "55.755826,37.6173"
 
-    func permission() async -> LocationPermission { status }
+    var permissionGate: FirstCallGate?
+    func permission() async -> LocationPermission {
+        let value = status
+        await permissionGate?.passIfNeeded()
+        return value
+    }
     func requestWhenInUseAuthorization() async -> LocationPermission {
         log.hit("requestWhenInUse")
         status = statusAfterRequest
@@ -89,7 +145,12 @@ final class MockMotionSystem: MotionSystem, @unchecked Sendable {
     let secretActivity = "automotive-walking-steps-1234"
 
     func isActivityAvailable() async -> Bool { available }
-    func permission() async -> MotionPermission { status }
+    var permissionGate: FirstCallGate?
+    func permission() async -> MotionPermission {
+        let value = status
+        await permissionGate?.passIfNeeded()
+        return value
+    }
     func requestAuthorization() async -> MotionPermission {
         log.hit("request")
         status = statusAfterRequest
@@ -111,7 +172,12 @@ final class MockNotificationSystem: NotificationSystem, @unchecked Sendable {
     var requestGate: MockCheck = .succeed
     private(set) var scheduled: [TestNotificationRequest] = []
 
-    func permission() async -> NotificationPermission { status }
+    var permissionGate: FirstCallGate?
+    func permission() async -> NotificationPermission {
+        let value = status
+        await permissionGate?.passIfNeeded()
+        return value
+    }
     func requestAuthorization() async throws {
         log.hit("request")
         try await requestGate.run()
@@ -687,5 +753,149 @@ final class CapabilityLabTests: XCTestCase {
                 XCTAssertFalse(text.contains("import \(framework)"), "\(url.lastPathComponent) imports \(framework)")
             }
         }
+    }
+
+    // MARK: Regression: stale passive refresh must not overwrite a newer probe result
+
+    /// Installs a gate on the status read of `id` and returns it.
+    private func gate(_ id: CapabilityID) -> FirstCallGate {
+        let gate = FirstCallGate()
+        switch id {
+        case .camera: camera.permissionGate = gate
+        case .currentLocation: location.permissionGate = gate
+        case .motion: motion.permissionGate = gate
+        case .localNotifications: notifications.permissionGate = gate
+        default: XCTFail("not a lab capability")
+        }
+        return gate
+    }
+
+    private func successDetail(_ id: CapabilityID) -> String {
+        switch id {
+        case .camera: return "camera_frame_received"
+        case .currentLocation: return "location_fix_received"
+        case .motion: return "motion_sample_received"
+        default: return "test_notification_scheduled"
+        }
+    }
+
+    /// The refresh blocks inside authorization() with a stale `not_requested`; meanwhile the
+    /// probe asks for permission, gets it and finishes; then the old refresh resumes.
+    @MainActor
+    private func raceProbeAgainstStaleRefresh(_ id: CapabilityID, lab: CapabilityLabCoordinator) async -> CapabilitySnapshot {
+        let gate = gate(id)
+        let refresh = Task { await lab.refreshAuthorizations() }
+        await waitUntil { gate.isWaiting }
+
+        lab.start(id)
+        await lab.waitForProbe(id)
+        let probeResult = lab.snapshot(for: id)
+
+        gate.open()
+        await refresh.value
+        XCTAssertEqual(lab.snapshot(for: id), probeResult, "\(id): stale refresh must not overwrite the probe result")
+        return lab.snapshot(for: id)
+    }
+
+    @MainActor
+    func testStaleRefreshDoesNotOverwriteLocationProbe() async {
+        let lab = makeLab()
+        let result = await raceProbeAgainstStaleRefresh(.currentLocation, lab: lab)
+
+        XCTAssertEqual(result.authorization, .granted)
+        XCTAssertEqual(result.probeState, .passed)
+        XCTAssertEqual(result.detail, "location_fix_received")
+        XCTAssertEqual(CapabilitySnapshotStore(directoryURL: directory).snapshot(for: .currentLocation), result,
+                       "the persisted snapshot is the consistent one")
+    }
+
+    @MainActor
+    func testStaleRefreshDoesNotOverwriteAnyProbe() async {
+        for id in CapabilityLabCoordinator.labCapabilities {
+            try? FileManager.default.removeItem(at: directory)
+            let lab = makeLab()
+            let result = await raceProbeAgainstStaleRefresh(id, lab: lab)
+            XCTAssertEqual(result.authorization, .granted, "\(id)")
+            XCTAssertEqual(result.probeState, .passed, "\(id)")
+            XCTAssertEqual(result.detail, successDetail(id), "\(id)")
+        }
+    }
+
+    @MainActor
+    func testFreshRefreshAfterProbeReportsCurrentStatusHonestly() async {
+        let lab = makeLab()
+        let passed = await run(lab, .currentLocation)
+        XCTAssertEqual(passed.authorization, .granted)
+
+        location.status = .notDetermined // e.g. Reset Location & Privacy
+        await lab.refreshAuthorizations()
+
+        let refreshed = lab.snapshot(for: .currentLocation)
+        XCTAssertEqual(refreshed.authorization, .notRequested)
+        XCTAssertEqual(refreshed.probeState, .passed, "the last probe result is kept, not faked")
+        XCTAssertEqual(refreshed.checkedAt, passed.checkedAt)
+    }
+
+    @MainActor
+    func testStaleRefreshDoesNotOverwriteDeniedOrCancelledProbe() async {
+        // Denied during the probe.
+        location.statusAfterRequest = .denied
+        let deniedLab = makeLab()
+        let denied = await raceProbeAgainstStaleRefresh(.currentLocation, lab: deniedLab)
+        XCTAssertEqual(denied.authorization, .denied)
+        XCTAssertEqual(denied.detail, "permission_denied")
+
+        // Cancelled while checking.
+        try? FileManager.default.removeItem(at: directory)
+        camera.status = .notDetermined
+        camera.check = .hang
+        let lab = makeLab()
+        let gate = gate(.camera)
+        let refresh = Task { await lab.refreshAuthorizations() }
+        await waitUntil { gate.isWaiting }
+        lab.start(.camera)
+        await waitUntil { self.camera.log.count("capture") == 1 }
+        lab.cancel(.camera)
+        await lab.waitForProbe(.camera)
+        let cancelled = lab.snapshot(for: .camera)
+        gate.open()
+        await refresh.value
+
+        XCTAssertEqual(cancelled.authorization, .granted)
+        XCTAssertEqual(cancelled.detail, "cancelled")
+        XCTAssertEqual(lab.snapshot(for: .camera), cancelled)
+    }
+
+    @MainActor
+    func testRefreshStartedDuringProbeIsDropped() async {
+        let lab = makeLab()
+        location.status = .authorizedWhenInUse
+        location.check = .hang
+        lab.start(.currentLocation)
+        await waitUntil { self.location.log.count("fix") == 1 }
+
+        location.status = .denied // a refresh now would read a different value
+        await lab.refreshAuthorizations()
+        XCTAssertEqual(lab.snapshot(for: .currentLocation).authorization, .unknown,
+                       "nothing is written for a capability while its probe runs")
+
+        lab.cancel(.currentLocation)
+        await lab.waitForProbe(.currentLocation)
+    }
+
+    @MainActor
+    func testReportAfterRaceIsConsistent() async throws {
+        let lab = makeLab()
+        let api = MockConnectorAPI()
+        let delivery = connect(lab, api: api)
+
+        _ = await raceProbeAgainstStaleRefresh(.currentLocation, lab: lab)
+        await waitUntil { api.reportCalls >= 1 }
+        await delivery.reportCapabilities()
+
+        let reported = try XCTUnwrap(api.reportedCapabilities.last?.first { $0.id == .currentLocation })
+        XCTAssertEqual(reported.authorization, .granted)
+        XCTAssertEqual(reported.probeState, .passed)
+        XCTAssertEqual(reported.detail, "location_fix_received")
     }
 }

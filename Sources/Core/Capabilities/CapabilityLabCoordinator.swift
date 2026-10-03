@@ -24,6 +24,10 @@ final class CapabilityLabCoordinator: ObservableObject {
     private let sleeper: any DeliverySleeper
     private let now: () -> Date
     private var tasks: [CapabilityID: Task<Void, Never>] = [:]
+    /// Per-capability write generation (compare-and-set for passive refreshes). Bumped when a
+    /// probe starts and on every saved change, so a refresh that started reading system
+    /// statuses earlier can tell that its values are stale.
+    private var generations: [CapabilityID: UInt64] = [:]
 
     init(store: CapabilitySnapshotStore,
          probes: [any CapabilityProbe],
@@ -48,11 +52,20 @@ final class CapabilityLabCoordinator: ObservableObject {
 
     /// Reads availability and authorization of the lab capabilities without any prompt.
     /// Never runs a probe and keeps `probe_state`, `checked_at` and `detail` as they were.
+    ///
+    /// The system reads are asynchronous; a probe may start and finish meanwhile. The values
+    /// are therefore written only if nothing touched that capability since the reads began
+    /// (same generation, no probe running) — otherwise they are stale and dropped. A refresh
+    /// that starts later reads fresh values and may change the authorization honestly
+    /// (e.g. back to `not_requested` after Reset Location & Privacy).
     func refreshAuthorizations() async {
         for id in Self.labCapabilities {
             guard let probe = probes[id], !running.contains(id) else { continue }
+            let baseline = generation(of: id)
             let availability = await probe.availability()
             let authorization = await probe.authorization()
+            // No suspension point between this check and `persist` (main actor): the check-and-write is atomic.
+            guard generation(of: id) == baseline, !running.contains(id) else { continue }
             var snapshot = store.snapshot(for: id)
             guard snapshot.availability != availability || snapshot.authorization != authorization else { continue }
             snapshot.availability = availability
@@ -61,11 +74,21 @@ final class CapabilityLabCoordinator: ObservableObject {
         }
     }
 
+    private func generation(of id: CapabilityID) -> UInt64 {
+        generations[id, default: 0]
+    }
+
+    private func bumpGeneration(of id: CapabilityID) {
+        generations[id, default: 0] &+= 1
+    }
+
     // MARK: Running probes
 
     /// Starts the probe unless it is already running (a second tap does nothing).
     func start(_ id: CapabilityID) {
         guard tasks[id] == nil, let probe = probes[id] else { return }
+        // Invalidates any refresh already reading this capability: the probe wins.
+        bumpGeneration(of: id)
         running.insert(id)
         tasks[id] = Task { [weak self] in
             await self?.perform(probe)
@@ -143,6 +166,7 @@ final class CapabilityLabCoordinator: ObservableObject {
     }
 
     private func persist(_ snapshot: CapabilitySnapshot, notify: Bool) {
+        bumpGeneration(of: snapshot.id)
         do {
             try store.save(snapshot)
             storageFailed = false

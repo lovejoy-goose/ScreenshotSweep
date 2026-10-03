@@ -196,6 +196,7 @@
   - [x] Unit-тесты по 40 обязательным сценариям (mocks, без hardware).
   - [ ] Тесты и device-сборка (с проверкой usage descriptions) зелёные в CI.
   - [ ] Ручная проверка на реальном iPhone по чек-листу `TESTING.md`.
+- **Заметки:** на iPhone найдена гонка: foreground-refresh, начавший читать статусы до probe, после завершения probe записал устаревшее `authorization = not_requested` поверх `granted/passed` (current_location). Исправлено в `fix: prevent stale capability refresh overwrite`: поколение (CAS) на каждую capability — увеличивается при старте probe и каждой записи; refresh пишет только если поколение не изменилось с начала чтения и probe не идёт; более поздний refresh обновляет статус честно.
 
 ## KC-009 End-to-end validation
 
