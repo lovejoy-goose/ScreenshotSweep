@@ -56,14 +56,28 @@ final class MockURLProtocol: URLProtocol {
         case failure(URLError.Code)
     }
 
+    /// A request as the server would see it (body already read from the stream).
+    struct Recorded {
+        let method: String
+        let path: String
+        let authorization: String?
+        let body: Data
+    }
+
     static var reply: Reply = .failure(.notConnectedToInternet)
+    /// When set, decides the reply per request (e.g. acknowledge exactly the sent event IDs).
+    static var handler: ((Recorded) -> Reply)?
     static var requestCount = 0
+    /// Last request, with its body available as `httpBody`.
     static var lastRequest: URLRequest?
+    static var recorded: [Recorded] = []
 
     static func reset() {
         reply = .failure(.notConnectedToInternet)
+        handler = nil
         requestCount = 0
         lastRequest = nil
+        recorded = []
     }
 
     static func makeSession() -> URLSession {
@@ -72,18 +86,30 @@ final class MockURLProtocol: URLProtocol {
         return URLSession(configuration: configuration)
     }
 
+    static func requests(to path: String) -> [Recorded] {
+        recorded.filter { $0.path == path }
+    }
+
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
+        let body = Self.readBody(request)
+        var copy = request
+        copy.httpBodyStream = nil
+        copy.httpBody = body.isEmpty ? nil : body
+        let entry = Recorded(method: request.httpMethod ?? "", path: request.url?.path ?? "",
+                             authorization: request.value(forHTTPHeaderField: "Authorization"), body: body)
         Self.requestCount += 1
-        Self.lastRequest = request
-        switch Self.reply {
-        case .response(let status, let body):
+        Self.lastRequest = copy
+        Self.recorded.append(entry)
+
+        switch Self.handler?(entry) ?? Self.reply {
+        case .response(let status, let responseBody):
             let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1",
                                            headerFields: ["Content-Type": "application/json"])!
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: body)
+            client?.urlProtocol(self, didLoad: responseBody)
             client?.urlProtocolDidFinishLoading(self)
         case .failure(let code):
             client?.urlProtocol(self, didFailWithError: URLError(code))
@@ -91,6 +117,36 @@ final class MockURLProtocol: URLProtocol {
     }
 
     override func stopLoading() {}
+
+    private static func readBody(_ request: URLRequest) -> Data {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return Data() }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable {
+            let read = stream.read(&buffer, maxLength: buffer.count)
+            if read <= 0 { break }
+            data.append(buffer, count: read)
+        }
+        return data
+    }
+
+    /// Replies to `events/batch` with `status` for every sent event; 200 `{"ok":true}` otherwise.
+    static func acknowledgeEvents(_ status: String, only: Set<UUID>? = nil) -> (Recorded) -> Reply {
+        { request in
+            guard request.path.hasSuffix("/events/batch"),
+                  let json = try? JSONSerialization.jsonObject(with: request.body) as? [String: Any],
+                  let events = json["events"] as? [[String: Any]] else {
+                return .response(status: 200, body: Data(#"{"ok":true,"server_time":"2026-10-04T10:00:00Z"}"#.utf8))
+            }
+            let ids = events.compactMap { $0["event_id"] as? String }
+                .filter { id in only.map { set in set.contains { $0.uuidString.lowercased() == id } } ?? true }
+            let results = ids.map { #"{"event_id":"\#($0)","status":"\#(status)"}"# }.joined(separator: ",")
+            return .response(status: 200, body: Data(#"{"results":[\#(results)]}"#.utf8))
+        }
+    }
 }
 
 enum Fixtures {

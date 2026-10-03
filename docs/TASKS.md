@@ -13,8 +13,8 @@
 | KC-005 | Persistent event queue and authenticated API client | **done** | KC-003, KC-004 |
 | KC-006 | Screenshot Cleanup event integration | **done** | KC-005 |
 | KC-007 | Custom URL scheme | **done** | KC-002, KC-004 |
-| KC-008 | Capability Lab | **in review** (ждёт CI и ручной проверки на iPhone) | KC-003, KC-005 |
-| KC-009 | End-to-end validation | planned | KC-004 … KC-008 |
+| KC-008 | Capability Lab | **done** | KC-003, KC-005 |
+| KC-009 | End-to-end validation and v0.1 release preparation | **in review** (ждёт ручного release checklist на iPhone и Katana) | KC-004 … KC-008 |
 
 ---
 
@@ -174,7 +174,7 @@
 
 ## KC-008 Capability Lab
 
-- **Статус:** in review — код, тесты и документация готовы; переводится в done после зелёного CI и ручной проверки на iPhone
+- **Статус:** done
 - **Цель:** четыре независимых ручных probes — Camera, Current Location (When In Use), Motion, Local Notifications (Q-8, D-034).
 - **Scope:**
   - Core (Foundation): `CapabilityProbeDetail`, `CapabilityProbeError`, нейтральные статусы и `CapabilityAuthorizationMapping`, протоколы адаптеров с Void-API, `CameraProbe`/`CurrentLocationProbe`/`MotionProbe`/`LocalNotificationsProbe`, `CapabilitySnapshotStore`; `CapabilityLabCoordinator` (Combine);
@@ -194,17 +194,31 @@
   - [x] Report после probe; ошибка сети не теряет результат; probes не создают событий.
   - [x] Dashboard: кнопка и состояния, без запросов и запуска probes; HealthKit/Core NFC — missing_entitlement; background_location — planned.
   - [x] Unit-тесты по 40 обязательным сценариям (mocks, без hardware).
-  - [ ] Тесты и device-сборка (с проверкой usage descriptions) зелёные в CI.
-  - [ ] Ручная проверка на реальном iPhone по чек-листу `TESTING.md`.
+  - [x] Тесты и device-сборка (с проверкой usage descriptions) зелёные в CI: commit `4a5c33ffcea9897f7f375f01afa6de871f3a3a6c`, run https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37155488985; исправление гонки `e37dbbb6ba5735da20ece8d3c11e88d44b0b2210`, run https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37156582212 (149 unit-тестов).
+  - [x] Ручная проверка на реальном iPhone 2026-10-04 (подтверждено пользователем): камера, текущая геолокация, Motion и локальные уведомления прошли; Katana получила только безопасные состояния, время и allowlisted detail-коды; координаты, кадры, Motion samples и сырые ошибки не передавались; после исправления и foreground-проверки сервер подтвердил `current_location`: `available / granted / passed / location_fix_received`.
 - **Заметки:** на iPhone найдена гонка: foreground-refresh, начавший читать статусы до probe, после завершения probe записал устаревшее `authorization = not_requested` поверх `granted/passed` (current_location). Исправлено в `fix: prevent stale capability refresh overwrite`: поколение (CAS) на каждую capability — увеличивается при старте probe и каждой записи; refresh пишет только если поколение не изменилось с начала чтения и probe не идёт; более поздний refresh обновляет статус честно.
 
-## KC-009 End-to-end validation
+## KC-009 End-to-end validation and v0.1 release preparation
 
-- **Статус:** planned
-- **Цель:** подтвердить сквозной сценарий на тестовом окружении.
-- **Scope:** сценарий PWA → QR pairing → URL scheme → Screenshot Cleanup → очередь → API (тестовое окружение); офлайн → онлайн; kill во время отправки; revoke; переустановка поверх (тот же Bundle ID); обновление `README.md` и `TESTING.md`.
+- **Статус:** in review — автоматические регрессии, документация и release checklist готовы; переводится в done только после ручного прохождения release checklist на реальном iPhone и Katana
+- **Цель:** подготовить и зафиксировать финальную проверку всей вертикали v0.1: Katana PWA → QR pairing → Keychain → custom URL → Screenshot Cleanup → persistent scoped queue → authenticated event API → результат в Katana.
+- **Scope:** финальные регрессии (`ConnectorReleaseValidationTests`), запись запросов в mock-сети для побайтового privacy-аудита, стабильность идентификаторов хранения (D-036), README, release checklist A–J в `TESTING.md`. Исправление только реально найденных дефектов v0.1.
+- **Вне scope:** новые capabilities, события, URL routes, BackgroundTasks, push, расширения, серверные изменения, зависимости, изменения API-контракта.
+- **Документы:** `README.md`, `TESTING.md` (release checklist), `DECISIONS.md` (D-036), `CLAUDE.md`.
 - **Зависимости:** KC-004 … KC-008.
+- **Результат аудита кода:** блокирующих дефектов v0.1 не найдено (проверены: запись в очередь до отправки, повтор того же `event_id` после перезапуска, обработка отмены во время отправки, 401 → флаг в Keychain → отсутствие сети после перезапуска, состояние repair, scope при повторном pairing). Продуктовый код не менялся.
 - **Acceptance criteria:**
-  - [ ] Сервер получает ровно одно событие на сессию с корректными счётчиками.
-  - [ ] Никакие фото/метаданные не уходят в сеть (проверка по логам сервера/прокси на тестовом окружении).
-  - [ ] Все ручные чек-листы `TESTING.md` пройдены, результаты записаны.
+  - [x] Автоматически: happy path; exact-once (двойное завершение, повторное открытие, `duplicate`, retryable с тем же `event_id`, тот же `event_id` после перезапуска); offline → online (диск, FIFO, только подтверждённое, scope); kill во время отправки; revoke/401 и повторное pairing к тому же и другому scope; стабильные идентификаторы хранения; ссылки; побайтовый privacy-аудит тел запросов; регрессии capabilities.
+  - [x] README и release checklist A–J с полями для записи результата.
+  - [ ] Тесты и device-сборка зелёные в CI.
+  - [ ] A. Fresh pairing — на iPhone и Katana.
+  - [ ] B. Deep links.
+  - [ ] C. Screenshot Cleanup.
+  - [ ] D. Offline → online.
+  - [ ] E. Kill during delivery.
+  - [ ] F. Revoke.
+  - [ ] G. Update over existing app.
+  - [ ] H. Capability Lab.
+  - [ ] I. Privacy / network verification (подтверждение пользователя и Katana).
+  - [ ] J. Final smoke test.
+- **Заметки:** Draft PR #1 не переводится в Ready и не сливается до закрытия KC-009.

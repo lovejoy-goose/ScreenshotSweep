@@ -220,6 +220,12 @@
   Хранение: `Application Support/KatanaConnector/Capabilities/capability-snapshots.json` — `{"version":1,"snapshots":[…]}`, атомарная запись, file protection until first unlock; неизвестная версия, битый JSON или неизвестный `CapabilityID` → файл переносится в `capability-snapshots.corrupt-…json`, используются значения по умолчанию, без падения. Store — provider реестра, поэтому реестр остаётся единственным каталогом; store не создаёт новых ID.
   После probe: snapshot сохраняется → Dashboard обновляется из того же store → если Katana подключена, отправляется capability report; ошибка сети не теряет результат. Probes не создают событий и не трогают очередь. При запуске и возврате в foreground обновляются только `availability` и `authorization` — без запросов, без probe, `probe_state`/`checked_at`/`detail` не меняются.
 
+## D-036 Стабильные идентификаторы хранения и обновление поверх
+
+- **Статус:** accepted (KC-009); уточняет D-002
+- **Решение:** установка новой версии IPA поверх старой обязана сохранять подключение, очередь событий и результаты Capability Lab. Поэтому неизменны: Bundle ID `app.katana.connector`; Keychain service `app.katana.connector.pairing`, account `device-credentials`; `Application Support/KatanaConnector/EventQueue/event-queue.json` (формат v2, миграция с v1); `Application Support/KatanaConnector/Capabilities/capability-snapshots.json` (формат v1); ключ `UserDefaults` `connector.lastSuccessfulSyncAt`. Все закреплены unit-тестом `testStorageIdentifiersStayStable`; изменение любого из них — только новой записью здесь вместе с миграцией.
+- **Последствия:** при переподписи другим Apple ID Keychain может стать недоступен — это уже обрабатывается как `unpaired` с предложением подключиться заново (D-021), очередь сохраняется.
+
 ---
 
 ## Открытые вопросы

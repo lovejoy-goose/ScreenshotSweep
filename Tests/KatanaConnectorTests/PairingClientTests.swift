@@ -5,8 +5,7 @@ final class PairingClientTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        MockURLProtocol.reply = .failure(.notConnectedToInternet)
-        MockURLProtocol.requestCount = 0
+        MockURLProtocol.reset()
     }
 
     private func reply(_ status: Int, _ json: String) {

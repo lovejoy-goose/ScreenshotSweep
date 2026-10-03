@@ -65,5 +65,6 @@
 - CI: `.github/workflows/build-ios.yml` — unsigned-сборка `KatanaConnector.ipa` (artifact `katana-connector-unsigned-ipa`).
 - Структура: `Sources/App`, `Sources/Core` (модели/парсеры/wire — только Foundation; Security — только Keychain; Combine — только координаторы — D-024), `Sources/Features/<Feature>`, `Sources/Shared` (только реально общее), `Tests/KatanaConnectorTests`. Без локальных SPM-пакетов и пустых заготовок (D-013, D-018).
 - Wire values моделей (snake_case) после релиза не меняются; любое изменение — только вместе с тестами и записью в `DECISIONS.md`.
+- Идентификаторы хранения (Bundle ID, Keychain service/account, пути и версии файлов в Application Support, ключ UserDefaults) неизменны — иначе обновление поверх теряет данные (D-036).
 - Минимальная iOS: 16.0. Язык: Swift 5, SwiftUI. Только фреймворки Apple.
 - Язык UI и документации — русский; идентификаторы в коде и API — английский.
