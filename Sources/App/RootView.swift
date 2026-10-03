@@ -27,6 +27,8 @@ struct RootView: View {
                         PairingView()
                     case .capabilityLab:
                         CapabilityLabView()
+                    case .activityJournal:
+                        ActivityJournalView()
                     }
                 }
         }

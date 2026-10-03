@@ -8,8 +8,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: "2"
 
 targets:
   KatanaConnector:
@@ -31,7 +31,7 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_NSCameraUsageDescription: "Katana Connector использует камеру только для сканирования QR-кода подключения к Katana и для ручной проверки камеры в Capability Lab. Изображение с камеры не сохраняется и никуда не отправляется."
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "Katana Connector определяет местоположение один раз, только когда вы нажимаете «Проверить геолокацию» в Capability Lab. Координаты не сохраняются и не отправляются — Katana узнаёт только, что проверка прошла."
-        INFOPLIST_KEY_NSMotionUsageDescription: "Katana Connector получает одно событие датчиков движения, только когда вы нажимаете «Проверить датчики движения» в Capability Lab. Данные о движении не сохраняются и не отправляются."
+        INFOPLIST_KEY_NSMotionUsageDescription: "Katana Connector определяет вид активности (ходьба, бег, транспорт и т.п.) только по вашим кнопкам: «Проверить датчики движения» в Capability Lab и «Определить текущую активность» или «Начать сессию» в Activity Journal. Сырые данные датчиков не сохраняются; в Katana уходят только вид активности и длительности — после вашего подтверждения."
         INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "Katana Connector показывает ваши скриншоты в разделе «Разобрать скриншоты», чтобы вы могли решить, какие удалить. Ничего не удаляется без вашего подтверждения, фото не отправляются в сеть."
         CODE_SIGN_STYLE: Manual
         CODE_SIGNING_ALLOWED: NO

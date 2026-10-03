@@ -12,6 +12,8 @@ struct KatanaConnectorApp: App {
     @StateObject private var pairingCoordinator: PairingCoordinator
     @StateObject private var deliveryCoordinator: EventDeliveryCoordinator
     @StateObject private var capabilityLab: CapabilityLabCoordinator
+    // Motion is touched only by the buttons inside Activity Journal.
+    @StateObject private var activityJournal: ActivityJournalCoordinator
     private let capabilityRegistry: CapabilityRegistry
 
     init() {
@@ -37,12 +39,16 @@ struct KatanaConnectorApp: App {
             Task { await delivery?.reportCapabilities() }
         }
 
+        let journal = ActivityJournalCoordinator(store: ActivityJournalFile.applicationSupportStore(),
+                                                 system: SystemActivityAccess(), sink: delivery)
+
         capabilityRegistry = registry
         _sweepStore = StateObject(wrappedValue: SweepStore(session: session))
         _cleanupSession = StateObject(wrappedValue: session)
         _pairingCoordinator = StateObject(wrappedValue: pairing)
         _deliveryCoordinator = StateObject(wrappedValue: delivery)
         _capabilityLab = StateObject(wrappedValue: lab)
+        _activityJournal = StateObject(wrappedValue: journal)
     }
 
     var body: some Scene {
@@ -53,6 +59,7 @@ struct KatanaConnectorApp: App {
                 .environmentObject(deliveryCoordinator)
                 .environmentObject(cleanupSession)
                 .environmentObject(capabilityLab)
+                .environmentObject(activityJournal)
                 .task {
                     // Status read only: no prompts, no probes.
                     await capabilityLab.refreshAuthorizations()
@@ -61,9 +68,17 @@ struct KatanaConnectorApp: App {
                 }
         }
         .onChange(of: scenePhase) { phase in
-            guard phase == .active else { return }
-            deliveryCoordinator.appBecameActive()
-            Task { await capabilityLab.refreshAuthorizations() }
+            switch phase {
+            case .active:
+                deliveryCoordinator.appBecameActive()
+                Task { await capabilityLab.refreshAuthorizations() }
+                Task { await activityJournal.appDidBecomeActive() }
+            case .background:
+                // iOS does not let the app observe in the background; the session says so honestly.
+                Task { await activityJournal.appDidEnterBackground() }
+            default:
+                break
+            }
         }
     }
 }

@@ -53,6 +53,9 @@ struct DashboardView: View {
                 NavigationLink(value: AppRoute.screenshotCleanup) {
                     Label("Разобрать скриншоты", systemImage: "photo.on.rectangle.angled")
                 }
+                NavigationLink(value: AppRoute.activityJournal) {
+                    Label("Activity Journal", systemImage: "figure.walk")
+                }
                 NavigationLink(value: AppRoute.capabilityLab) {
                     Label("Capability Lab", systemImage: "checklist")
                 }

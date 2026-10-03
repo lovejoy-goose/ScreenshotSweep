@@ -402,3 +402,32 @@ extension EventDeliveryCoordinator: CleanupEventSink {
         }
     }
 }
+
+extension EventDeliveryCoordinator: ConnectorEventSink {
+    func enqueueEvent(_ event: ConnectorEvent) async -> EventEnqueueOutcome {
+        do {
+            try await enqueue(event)
+            return .saved
+        } catch ConnectorAPIError.notPaired {
+            return .notPaired
+        } catch {
+            return .failed
+        }
+    }
+
+    /// Still in the queue (any scope) → pending; in the rejected journal → rejected; otherwise
+    /// it was acknowledged by Katana and removed. Only meaningful for events that were saved.
+    func localDeliveryState(of eventID: UUID) async -> EventLocalDeliveryState {
+        if rejectedEventIDs.contains(eventID) { return .rejected }
+        if deliveredEventIDs.contains(eventID) { return .delivered }
+        if (try? await queue.contains(eventID: eventID)) ?? true { return .pending }
+        if let records = try? await queue.rejectedRecords(), records.contains(where: { $0.eventID == eventID }) {
+            return .rejected
+        }
+        return .delivered
+    }
+
+    func reportUnauthorized() {
+        enterRequiresRepair()
+    }
+}
