@@ -1,0 +1,73 @@
+import Foundation
+
+/// Source of capability state. The static provider is used until real providers
+/// (system authorization checks, Capability Lab probes) replace it.
+protocol CapabilitySnapshotProviding: Sendable {
+    func snapshot(for id: CapabilityID) -> CapabilitySnapshot
+}
+
+/// Declared initial state. Touches no system APIs and requests no permissions.
+struct StaticCapabilitySnapshotProvider: CapabilitySnapshotProviding {
+    func snapshot(for id: CapabilityID) -> CapabilitySnapshot {
+        let availability: CapabilityAvailability
+        switch id {
+        case .photos:
+            availability = .available
+        case .healthKit, .coreNFC:
+            availability = .missingEntitlement
+        case .camera, .visionOCR, .files, .currentLocation, .backgroundLocation, .motion,
+             .localNotifications, .bluetooth, .localNetwork, .contacts, .calendar, .reminders,
+             .faceID, .microphone, .speech:
+            availability = .planned
+        }
+        return CapabilitySnapshot(id: id, availability: availability, authorization: .unknown,
+                                  probeState: .notRun, checkedAt: nil, detail: nil)
+    }
+}
+
+/// The single catalog of Connector capabilities, in stable display/report order.
+/// Requests no permissions, calls no system APIs, makes no network calls, stores no tokens.
+struct CapabilityRegistry: Sendable {
+    static let catalog: [CapabilityDescriptor] = [
+        CapabilityDescriptor(id: .photos, title: "Фото", category: .media),
+        CapabilityDescriptor(id: .camera, title: "Камера", category: .media),
+        CapabilityDescriptor(id: .visionOCR, title: "Распознавание текста", category: .media),
+        CapabilityDescriptor(id: .microphone, title: "Микрофон", category: .media),
+        CapabilityDescriptor(id: .speech, title: "Распознавание речи", category: .media),
+        CapabilityDescriptor(id: .files, title: "Файлы", category: .documents),
+        CapabilityDescriptor(id: .currentLocation, title: "Текущая геолокация", category: .location),
+        CapabilityDescriptor(id: .backgroundLocation, title: "Фоновая геолокация", category: .location),
+        CapabilityDescriptor(id: .motion, title: "Движение", category: .sensors),
+        CapabilityDescriptor(id: .localNotifications, title: "Локальные уведомления", category: .notifications),
+        CapabilityDescriptor(id: .bluetooth, title: "Bluetooth", category: .connectivity),
+        CapabilityDescriptor(id: .localNetwork, title: "Локальная сеть", category: .connectivity),
+        CapabilityDescriptor(id: .coreNFC, title: "NFC", category: .connectivity),
+        CapabilityDescriptor(id: .contacts, title: "Контакты", category: .personalData),
+        CapabilityDescriptor(id: .calendar, title: "Календарь", category: .personalData),
+        CapabilityDescriptor(id: .reminders, title: "Напоминания", category: .personalData),
+        CapabilityDescriptor(id: .faceID, title: "Face ID", category: .security),
+        CapabilityDescriptor(id: .healthKit, title: "Здоровье (HealthKit)", category: .health),
+    ]
+
+    private let provider: any CapabilitySnapshotProviding
+
+    init(provider: any CapabilitySnapshotProviding = StaticCapabilitySnapshotProvider()) {
+        self.provider = provider
+    }
+
+    var descriptors: [CapabilityDescriptor] { Self.catalog }
+
+    func descriptor(for id: CapabilityID) -> CapabilityDescriptor {
+        // The catalog covers every CapabilityID (enforced by tests).
+        Self.catalog.first { $0.id == id }!
+    }
+
+    func snapshot(for id: CapabilityID) -> CapabilitySnapshot {
+        provider.snapshot(for: id)
+    }
+
+    /// Snapshots of all capabilities, in catalog order.
+    func snapshots() -> [CapabilitySnapshot] {
+        Self.catalog.map { snapshot(for: $0.id) }
+    }
+}
