@@ -1,6 +1,6 @@
 # Katana API — контракт Connector
 
-> Статус: pairing (v1) проверен end-to-end; маршруты 3–5 зафиксированы в KC-005 и ждут проверки с реальным Katana API. Все адреса ниже — плейсхолдеры.
+> Статус: v0.1 (pairing, маршруты 3–5, `screenshot_cleanup.completed`, ссылки v1) проверен end-to-end на реальном iPhone и Katana (release v0.1.0). v0.2 (маршрут 7, ссылки v2, пять новых событий) — клиентский контракт, который должна реализовать Katana; ждёт итоговой ручной проверки. Все адреса ниже — плейсхолдеры.
 
 ## Общие правила
 
@@ -9,7 +9,8 @@
 - Идентификаторы, создаваемые клиентом (`event_id`, `session_id`, `installation_id`), — UUID v4.
 - Авторизация после pairing: device token в заголовке (например, `Authorization: Bearer <device_token>`). Токен хранится только в Keychain и никогда не логируется.
 - Версия контракта передаётся клиентом (например, поле или заголовок `api_version`) — точный механизм TBD.
-- В API **никогда** не передаются: изображения, превью, хэши изображений, `PHAsset.localIdentifier`, имена файлов, даты отдельных снимков, EXIF, геоданные.
+- В API **никогда** не передаются: изображения, превью, хэши изображений, `PHAsset.localIdentifier`, имена файлов, даты отдельных снимков, EXIF, геоданные снимков, сырые данные движения (Motion samples, временные ряды), высота/скорость/курс/этаж/сырая точность геолокации, токены и коды.
+- Координаты устройства передаются **только** в событии `location.check_in.created`, только после предпросмотра и явного подтверждения пользователя и только округлёнными (D-040).
 
 ## Операции
 
@@ -217,6 +218,52 @@ GET {base_url}/api/connector/connection/check
 - **С устройства:** «Отключить на этом iPhone» удаляет credentials из Keychain; серверный revoke пока не вызывается. Очередь событий не удаляется.
 - **С сервера/PWA:** токен отзывается на сервере; Connector узнаёт об этом по 401 и переходит в состояние «Требуется повторное подключение» (credentials помечаются и больше не используются, очередь сохраняется).
 
+### 7. Reminder draft (v0.2, V2-005)
+
+```
+GET {base_url}/api/connector/reminder-drafts/{draft_id}
+Authorization: Bearer <device_token>
+Accept: application/json
+```
+
+Черновик напоминания, который Katana подготовила для этого устройства. `{draft_id}` — UUID из ссылки v2 в нижнем регистре; других параметров и query нет. Запрос выполняется **только** по кнопке «Загрузить напоминание» на экране черновика (ссылка сама сеть не запускает, D-041/D-042); автоматических повторов нет. Общие правила авторизованных запросов (Bearer из Keychain перед запросом, без редиректов, timeout 15 с, ответ ≤ 64 KiB, `requires_repair` → запрос не отправляется) действуют как для маршрутов 3–5.
+
+Успешный ответ (`200`):
+
+```json
+{
+  "draft_id": "6f1c2d3e-4b5a-4c6d-8e7f-90a1b2c3d4e5",
+  "title": "Позвонить в сервис",
+  "body": "Уточнить время записи",
+  "fire_at": "2026-10-05T09:00:00Z",
+  "expires_at": "2026-10-04T23:59:00Z"
+}
+```
+
+| Поле | Тип | Проверка клиентом |
+|---|---|---|
+| `draft_id` | UUID | совпадает с запрошенным (регистр не важен), иначе `invalidResponse` |
+| `title` | string | 1…120 Unicode scalar values, не только пробелы, без управляющих символов |
+| `body` | string \| null | ≤ 500 Unicode scalar values; управляющие символы запрещены, кроме перевода строки; пустая строка = `null` |
+| `fire_at` | ISO 8601 | строго в будущем относительно часов iPhone и не дальше 366 дней, иначе `alreadyDue` / `invalidResponse` |
+| `expires_at` | ISO 8601 | строго в будущем, иначе `expired` |
+
+Неизвестные дополнительные ключи игнорируются. Черновик должен принадлежать устройству/аккаунту этого токена: для чужого черновика сервер отвечает как для несуществующего (`404`), не раскрывая его существование.
+
+| HTTP / условие | Ошибка клиента | UI |
+|---|---|---|
+| 401 | `unauthorized` | «Требуется повторное подключение»; credentials помечаются `requires_repair`, повторов нет |
+| 403, 404 | `notFound` | «Напоминание не найдено» |
+| 409 | `consumed` | «Напоминание уже использовано» |
+| 410 или `expires_at` ≤ сейчас | `expired` | «Срок действия ссылки истёк» |
+| `fire_at` ≤ сейчас | `alreadyDue` | «Время напоминания уже наступило» |
+| 408, сеть, timeout | `offline` | безопасная повторяемая ошибка «Нет соединения…», кнопка «Повторить» |
+| 429 | `rateLimited` | повторяемая ошибка |
+| 5xx | `serverError` | повторяемая ошибка |
+| 3xx, прочие коды, битое/слишком большое тело, нарушение правил выше | `invalidResponse` | «Katana ответила неожиданно» |
+
+Тело ошибки клиентом не разбирается. Ни при какой ошибке ничего не планируется.
+
 ## Custom URL scheme v1 (PWA → Connector, KC-007)
 
 Katana PWA может открыть экран Connector ссылкой. Это **только навигация**: в сеть ничего не уходит, данные и credentials не передаются.
@@ -243,6 +290,29 @@ katana-connector://open?v=1&feature=pairing
 - `pairing` — экран объяснения подключения; камера — только по «Сканировать QR»; ссылка не содержит кода и адреса и не создаёт подключение.
 
 Формат pairing QR `katana-connector://pair?…` (см. выше) — только для QR-сканера; как ссылка он не обрабатывается.
+
+## Custom URL scheme v2 (PWA → Connector, V2-001)
+
+Ссылки v1 не меняются. Версия 2 добавляет ровно три ссылки — тоже **только навигация** (D-042):
+
+```
+katana-connector://open?v=2&feature=activity_journal
+katana-connector://open?v=2&feature=location_check_in
+katana-connector://open?v=2&feature=reminder&draft_id=<uuid>
+```
+
+| Часть | Правило |
+|---|---|
+| scheme / host / path, user, password, port, fragment, длина, ASCII | как в v1 |
+| `v` | ровно один раз, строго `2` |
+| `feature` | ровно один раз: `activity_journal`, `location_check_in` или `reminder`; функции v1 с `v=2` отклоняются (`unsupportedVersion`) |
+| `draft_id` | ровно один раз и только для `reminder`: канонический UUID `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` (hex, регистр не важен); для других функций запрещён |
+| percent-encoding | в query v2 запрещён (символ `%`) |
+| прочие параметры | запрещены, в том числе `token`, `code`, `base_url`, `device_id`, `title`, `body`, `fire_at` |
+
+- `activity_journal` / `location_check_in` — открывают экран функции; разрешения Motion и геолокации запрашиваются только кнопками внутри.
+- `reminder` — открывает «Локальные напоминания» и поверх — экран черновика. Текст напоминания в ссылке **не передаётся**; черновик загружается только кнопкой «Загрузить напоминание» (маршрут 7); уведомление создаётся только кнопкой «Создать напоминание».
+- Невалидная ссылка игнорируется и не меняет текущий экран. Ссылка не запрашивает разрешения, не планирует уведомления, не создаёт события и не обращается к сети.
 
 ## События
 
@@ -287,3 +357,174 @@ katana-connector://open?v=1&feature=pairing
 Инварианты (проверяются до отправки; событие с нарушением не создаётся): `reviewed_count = kept_count + deletion_requested_count`, `reviewed_count > 0`, `started_at <= completed_at`, при `deletion_requested_count = 0` — `deletion_completed = true`. `remaining_count` не передаётся: при ограниченном доступе к фото и изменениях медиатеки его нельзя определить достоверно.
 
 **Не передаётся никогда:** изображения, миниатюры, `PHAsset.localIdentifier`, имена файлов, даты и геоданные отдельных снимков, размеры, список действий пользователя. Решения отменённые через undo в счётчики не входят; скриншоты, исчезнувшие из медиатеки вне приложения, не учитываются.
+
+## События v0.2 (Context & Actions)
+
+Общие правила (D-038): событие создаётся только после явного подтверждения пользователя; `event_id` — новый UUID, создаётся один раз и переиспользуется при повторах и после перезапуска; `session_id` конверта — собственный идентификатор записи; все UUID в нижнем регистре, времена ISO 8601 UTC с точностью до секунды; payload проверяется до enqueue на точный набор ключей и закрытые значения; очередь, scope и `events/batch` — те же, что в v0.1. Сервер дедуплицирует по `event_id`; дополнительно может проверять уникальность пары (`type`, `session_id`).
+
+| `type` | `session_id` конверта | `occurred_at` | Ключи payload |
+|---|---|---|---|
+| `activity.snapshot.completed` | `snapshot_id` (UUID на проверку) | `checked_at` | 5 |
+| `activity.session.completed` | `session_id` | `completed_at` | 13 |
+| `location.check_in.created` | `check_in_id` | `occurred_at` (время фиксации) | 7 |
+| `reminder.local.scheduled` | `draft_id` | `created_at` | 5 |
+| `reminder.local.cancelled` | `draft_id` | `cancelled_at` | 3 |
+
+### `activity.snapshot.completed`
+
+Создаётся кнопкой «Отправить в Katana» после «Определить текущую активность».
+
+```json
+{
+  "event_id": "00000000-0000-4000-8000-000000000101",
+  "type": "activity.snapshot.completed",
+  "occurred_at": "2026-10-04T10:00:00Z",
+  "session_id": "aaaaaaaa-0000-4000-8000-000000000001",
+  "payload": {
+    "activity": "walking",
+    "confidence": "high",
+    "checked_at": "2026-10-04T10:00:00Z",
+    "source": "motion_activity",
+    "interrupted": false
+  }
+}
+```
+
+| Поле | Значения |
+|---|---|
+| `activity` | `stationary`, `walking`, `running`, `cycling`, `automotive`, `unknown` |
+| `confidence` | `low`, `medium`, `high` |
+| `checked_at` | время проверки; совпадает с `occurred_at` |
+| `source` | всегда `motion_activity` |
+| `interrupted` | всегда `false` |
+
+Правило при нескольких флагах CMMotionActivity: `automotive` > `cycling` > `running` > `walking` > `stationary` > `unknown`; без флагов — `unknown`.
+
+### `activity.session.completed`
+
+Создаётся кнопкой «Отправить в Katana» на предпросмотре после «Завершить» (или после «Завершить» прерванной сессии).
+
+```json
+{
+  "event_id": "00000000-0000-4000-8000-000000000102",
+  "type": "activity.session.completed",
+  "occurred_at": "2026-10-04T10:30:00Z",
+  "session_id": "bbbbbbbb-0000-4000-8000-000000000002",
+  "payload": {
+    "session_id": "bbbbbbbb-0000-4000-8000-000000000002",
+    "started_at": "2026-10-04T10:00:00Z",
+    "completed_at": "2026-10-04T10:30:00Z",
+    "duration_seconds": 1800,
+    "dominant_activity": "walking",
+    "stationary_seconds": 300,
+    "walking_seconds": 1200,
+    "running_seconds": 0,
+    "cycling_seconds": 0,
+    "automotive_seconds": 0,
+    "unknown_seconds": 300,
+    "interrupted": false
+  }
+}
+```
+
+| Поле | Тип | Описание |
+|---|---|---|
+| `session_id` | UUID | совпадает с `session_id` конверта |
+| `started_at` / `completed_at` | ISO 8601 | целые секунды; `started_at` ≤ `completed_at`; `completed_at` = `occurred_at` |
+| `duration_seconds` | int ≥ 0 | `completed_at − started_at` |
+| `dominant_activity` | категория | наибольшее время; при равенстве — приоритет как у snapshot; при нулевой длительности — `unknown` |
+| `<category>_seconds` | int ≥ 0 | шесть категорий; время в фоне или без данных — `unknown_seconds` |
+| `interrupted` | bool | сессия была восстановлена после завершения процесса (kill/relaunch); тогда `completed_at` — последняя сохранённая точка |
+
+Инварианты (проверяются до enqueue): все секунды ≥ 0; сумма шести категорий ≤ `duration_seconds` + 1 (допуск 1 с; клиент формирует точное равенство); `dominant_activity` согласован со значениями. Временного ряда, сырых Motion samples и координат нет.
+
+### `location.check_in.created`
+
+Создаётся только после «Определить текущее место» → предпросмотр → выбор точности → «Отправить в Katana» → подтверждение.
+
+```json
+{
+  "event_id": "00000000-0000-4000-8000-000000000103",
+  "type": "location.check_in.created",
+  "occurred_at": "2026-10-04T11:00:00Z",
+  "session_id": "cccccccc-0000-4000-8000-000000000003",
+  "payload": {
+    "check_in_id": "cccccccc-0000-4000-8000-000000000003",
+    "occurred_at": "2026-10-04T11:00:00Z",
+    "latitude": 55.76,
+    "longitude": 37.62,
+    "precision": "approximate",
+    "horizontal_accuracy_bucket": "under_100m",
+    "label_requested": true
+  }
+}
+```
+
+| Поле | Тип | Описание |
+|---|---|---|
+| `check_in_id` | UUID | совпадает с `session_id` конверта |
+| `occurred_at` | ISO 8601 | время получения фиксации (целые секунды) |
+| `latitude` | number | −90…90; `approximate` — округлено до 2 знаков, `precise` — не больше 6 знаков |
+| `longitude` | number | −180…180; округление как у `latitude` |
+| `precision` | string | `approximate`, `precise` |
+| `horizontal_accuracy_bucket` | string | `under_25m` (< 25 м), `under_100m` (< 100 м), `under_1km` (< 1000 м), `over_1km`, `unknown` |
+| `label_requested` | bool | пользователь попросил Katana подписать место (reverse geocoding на сервере) |
+
+Не передаются: высота, скорость, курс, этаж, сырая точность числом, время CLLocation, EXIF и данные фотографий. Клиент гарантирует округлённое значение; сервер может дополнительно округлить до 2/6 знаков.
+
+### `reminder.local.scheduled`
+
+Создаётся после «Создать напоминание», выданного разрешения и успешного планирования локального уведомления.
+
+```json
+{
+  "event_id": "00000000-0000-4000-8000-000000000104",
+  "type": "reminder.local.scheduled",
+  "occurred_at": "2026-10-04T12:00:00Z",
+  "session_id": "6f1c2d3e-4b5a-4c6d-8e7f-90a1b2c3d4e5",
+  "payload": {
+    "draft_id": "6f1c2d3e-4b5a-4c6d-8e7f-90a1b2c3d4e5",
+    "scheduled_for": "2026-10-05T09:00:00Z",
+    "notification_id": "app.katana.connector.reminder.6f1c2d3e-4b5a-4c6d-8e7f-90a1b2c3d4e5",
+    "authorization": "authorized",
+    "created_at": "2026-10-04T12:00:00Z"
+  }
+}
+```
+
+| Поле | Описание |
+|---|---|
+| `draft_id` | UUID черновика; совпадает с `session_id` конверта |
+| `scheduled_for` | `fire_at` черновика |
+| `notification_id` | `app.katana.connector.reminder.<draft_id>` |
+| `authorization` | `authorized`, `provisional`, `ephemeral` — с каким разрешением запланировано |
+| `created_at` | время планирования; совпадает с `occurred_at` |
+
+### `reminder.local.cancelled`
+
+Создаётся, когда пользователь отменил ещё не сработавшее напоминание Connector (с подтверждением).
+
+```json
+{
+  "event_id": "00000000-0000-4000-8000-000000000105",
+  "type": "reminder.local.cancelled",
+  "occurred_at": "2026-10-04T13:00:00Z",
+  "session_id": "6f1c2d3e-4b5a-4c6d-8e7f-90a1b2c3d4e5",
+  "payload": {
+    "draft_id": "6f1c2d3e-4b5a-4c6d-8e7f-90a1b2c3d4e5",
+    "notification_id": "app.katana.connector.reminder.6f1c2d3e-4b5a-4c6d-8e7f-90a1b2c3d4e5",
+    "cancelled_at": "2026-10-04T13:00:00Z"
+  }
+}
+```
+
+`title` и `body` в события напоминаний **не входят**: Katana уже знает содержимое черновика.
+
+### Что должна реализовать Katana для v0.2
+
+1. `GET /api/connector/reminder-drafts/{draft_id}` по контракту выше: Bearer-аутентификация, привязка черновика к устройству/аккаунту, `404` для чужих и несуществующих, `410` для истёкших, `409` для использованных, без редиректов, тело < 64 KiB.
+2. Ссылку `katana-connector://open?v=2&feature=reminder&draft_id=<uuid>` без текста напоминания.
+3. Приём пяти новых типов в `events/batch` (`accepted` / `duplicate` по `event_id`; `rejected` с кодом для неизвестных или невалидных), валидацию payload по таблицам выше, допуск 1 с для суммы секунд активности.
+4. Для check-in — reverse geocoding по `label_requested` на сервере; хранение координат по политике Katana.
+5. По желанию — пометку черновика consumed по `reminder.local.scheduled` (Q-10).
+

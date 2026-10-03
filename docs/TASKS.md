@@ -16,6 +16,21 @@
 | KC-008 | Capability Lab | **done** | KC-003, KC-005 |
 | KC-009 | End-to-end validation and v0.1 release preparation | **done** | KC-004 … KC-008 |
 
+Release **v0.1.0** опубликован 2026-10-04: tag `v0.1.0` → merge commit `1ea20c11f5385801c45c27bcf77e65c87bfb8d6b`, IPA из post-merge CI run 37159436900.
+
+### Milestone v0.2 — Context & Actions (один Draft PR, D-037)
+
+| ID | Задача | Статус | Зависит от |
+|---|---|---|---|
+| V2-001 | Product / API / security decisions | in progress | v0.1.0 |
+| V2-002 | Shared models and storage | planned | V2-001 |
+| V2-003 | Activity Journal | planned | V2-002 |
+| V2-004 | Location Check-in | planned | V2-002 |
+| V2-005 | Local reminders from Katana drafts | planned | V2-002 |
+| V2-006 | Integration / regression / release validation | planned | V2-003 … V2-005 |
+
+Весь milestone v0.2 — **in progress** (станет `in review` после зелёного CI всех задач; `done` — только после одной итоговой проверки на реальном iPhone и Katana).
+
 ---
 
 ## KC-001 Repository foundation
@@ -222,3 +237,72 @@
   - [x] I. Privacy / network verification — подтверждено пользователем и Katana: ровно 7 разрешённых полей payload; фото, идентификаторы и метаданные не передавались.
   - [x] J. Final smoke test — ровно одно событие 1/1/0; повторная синхронизация без дубля.
 - **Заметки:** ручная проверка 2026-10-04 подтверждена пользователем и Katana (детали — `TESTING.md`, Release checklist v0.1). После закрытия KC-009 Draft PR #1 переводится в Ready for review; слияние — отдельным решением.
+
+---
+
+# Milestone v0.2 — Context & Actions
+
+Один Draft PR `Katana Connector v0.2 — Context & Actions` из ветки `feature/katana-connector-v0.2-context-actions` (D-037). Внутренние задачи коммитятся отдельно, но промежуточные IPA не устанавливаются: ручная проверка одна — в конце (`TESTING.md`, Release checklist v0.2).
+
+## V2-001 Product / API / security decisions
+
+- **Статус:** in progress
+- **Цель:** до кода зафиксировать продукт, решения, wire formats, deep links, API черновиков и границы приватности v0.2.
+- **Scope:** `DECISIONS.md` (D-037…D-044), `API.md` (маршрут 7, ссылки v2, пять событий, серверный контракт), `PRODUCT.md`, `TASKS.md`, `CLAUDE.md`.
+- **Документы:** все `docs/`, `CLAUDE.md`.
+- **Acceptance criteria:**
+  - [x] Решения v0.2 записаны; v0.1 wire formats и storage identifiers не меняются.
+  - [x] Точные wire formats пяти событий, ссылки v2, контракт `reminder-drafts`.
+  - [ ] Зелёный CI на коммите.
+
+## V2-002 Shared models and storage
+
+- **Статус:** planned
+- **Цель:** общая инфраструктура для трёх функций без новой очереди.
+- **Scope:** `VersionedJSONFileStore` (атомарно, file protection, без backup, quarantine, миграции); `ContextEventSchema` (точные ключи payload по типу, проверка до enqueue); `ConnectorEventSink` + статус доставки по `event_id` в `EventDeliveryCoordinator`; URL v2 и новые `AppRoute`.
+- **Acceptance criteria:**
+  - [ ] Хранилище: missing → пусто, битый JSON / неизвестная версия → quarantine без удаления и падения, атомарная запись, file protection, без backup.
+  - [ ] Схема событий отклоняет лишние/недостающие ключи.
+  - [ ] Строгий парсер v2; v1 не изменился; ссылки только навигация.
+  - [ ] Зелёный CI.
+
+## V2-003 Activity Journal
+
+- **Статус:** planned
+- **Scope:** Core: категории, классификатор, `ActivitySystem` (Void-free, но без времени и истории), сессия (целые секунды, монотонно), `ActivityJournalStore` v1, `ActivityJournalCoordinator`; Features: адаптер CoreMotion, экран; события `activity.snapshot.completed`, `activity.session.completed`.
+- **Acceptance criteria:**
+  - [ ] Разрешение только по кнопке; denied/restricted/unsupported честно.
+  - [ ] Детерминированное правило флагов; агрегаты и инварианты; double finish без дубля; interrupted после relaunch; удаление без события.
+  - [ ] Offline/retry с тем же `event_id`; нет raw samples.
+  - [ ] Зелёный CI.
+
+## V2-004 Location Check-in
+
+- **Статус:** planned
+- **Scope:** Core: точность, корзины, округление, `CheckInLocationSystem`, `CheckInHistoryStore` v1, `LocationCheckInCoordinator`; Features: адаптер CoreLocation (только When In Use и `requestLocation`), экран; событие `location.check_in.created`.
+- **Acceptance criteria:**
+  - [ ] When In Use только по кнопке; denied/restricted/services disabled.
+  - [ ] Предпросмотр и подтверждение до события; отмена без события; координаты очищаются; срок предпросмотра 5 минут.
+  - [ ] Округление 2/6 знаков; корзины точности; нет запрещённых полей; история без координат.
+  - [ ] Offline/relaunch/exact-once; scope isolation.
+  - [ ] Зелёный CI.
+
+## V2-005 Local reminders from Katana drafts
+
+- **Статус:** planned
+- **Scope:** Core: `ReminderDraft` + проверка ответа, `GET reminder-drafts` в API-клиенте (typed errors), `ReminderNotificationSystem`, `ReminderStore` v1, `ReminderCoordinator`; Features: адаптер UserNotifications, экраны списка и черновика; события `reminder.local.scheduled`, `reminder.local.cancelled`.
+- **Acceptance criteria:**
+  - [ ] Ссылка только открывает экран; загрузка — кнопкой; Bearer/size/redirect/ошибки.
+  - [ ] Разрешение только после «Создать напоминание»; детерминированный идентификатор; без дублей; отмена только своих уведомлений.
+  - [ ] События без title/body; persistence/relaunch; 401 → requires_repair без повторов.
+  - [ ] Зелёный CI.
+
+## V2-006 Integration / regression / release validation
+
+- **Статус:** planned
+- **Scope:** Dashboard «Функции», App-композиция и lifecycle, Info.plist-тексты, версия 0.2.0, сквозные тесты v0.2 (privacy request-body audit, scope, revoke/repair, стабильность идентификаторов), README/ARCHITECTURE/TESTING, единый ручной checklist v0.2.
+- **Acceptance criteria:**
+  - [ ] Все тесты v0.1 зелёные; v1 ссылки, Screenshot Cleanup, Capability Lab не сломаны.
+  - [ ] Info.plist без Always/background modes; без entitlements; Core без hardware-фреймворков.
+  - [ ] Зелёный CI, финальный IPA.
+  - [ ] Итоговая ручная проверка на реальном iPhone и Katana (после неё весь v0.2 → done).
