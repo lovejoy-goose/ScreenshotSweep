@@ -14,7 +14,7 @@
 | KC-006 | Screenshot Cleanup event integration | **done** | KC-005 |
 | KC-007 | Custom URL scheme | **done** | KC-002, KC-004 |
 | KC-008 | Capability Lab | **done** | KC-003, KC-005 |
-| KC-009 | End-to-end validation and v0.1 release preparation | **in review** (ждёт ручного release checklist на iPhone и Katana) | KC-004 … KC-008 |
+| KC-009 | End-to-end validation and v0.1 release preparation | **done** | KC-004 … KC-008 |
 
 ---
 
@@ -200,7 +200,7 @@
 
 ## KC-009 End-to-end validation and v0.1 release preparation
 
-- **Статус:** in review — автоматические регрессии, документация и release checklist готовы; переводится в done только после ручного прохождения release checklist на реальном iPhone и Katana
+- **Статус:** done — release validation v0.1 пройдена 2026-10-04
 - **Цель:** подготовить и зафиксировать финальную проверку всей вертикали v0.1: Katana PWA → QR pairing → Keychain → custom URL → Screenshot Cleanup → persistent scoped queue → authenticated event API → результат в Katana.
 - **Scope:** финальные регрессии (`ConnectorReleaseValidationTests`), запись запросов в mock-сети для побайтового privacy-аудита, стабильность идентификаторов хранения (D-036), README, release checklist A–J в `TESTING.md`. Исправление только реально найденных дефектов v0.1.
 - **Вне scope:** новые capabilities, события, URL routes, BackgroundTasks, push, расширения, серверные изменения, зависимости, изменения API-контракта.
@@ -210,15 +210,15 @@
 - **Acceptance criteria:**
   - [x] Автоматически: happy path; exact-once (двойное завершение, повторное открытие, `duplicate`, retryable с тем же `event_id`, тот же `event_id` после перезапуска); offline → online (диск, FIFO, только подтверждённое, scope); kill во время отправки; revoke/401 и повторное pairing к тому же и другому scope; стабильные идентификаторы хранения; ссылки; побайтовый privacy-аудит тел запросов; регрессии capabilities.
   - [x] README и release checklist A–J с полями для записи результата.
-  - [ ] Тесты и device-сборка зелёные в CI.
-  - [ ] A. Fresh pairing — на iPhone и Katana.
-  - [ ] B. Deep links.
-  - [ ] C. Screenshot Cleanup.
-  - [ ] D. Offline → online.
-  - [ ] E. Kill during delivery.
-  - [ ] F. Revoke.
-  - [ ] G. Update over existing app.
-  - [ ] H. Capability Lab.
-  - [ ] I. Privacy / network verification (подтверждение пользователя и Katana).
-  - [ ] J. Final smoke test.
-- **Заметки:** Draft PR #1 не переводится в Ready и не сливается до закрытия KC-009.
+  - [x] Тесты и device-сборка зелёные в CI: commit `228bd640234759e0880df2bd2d8b060146a6a1f3`, run https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37157879782 (162 unit-теста).
+  - [x] A. Fresh pairing — повторное pairing после revoke успешно; новое устройство active, старое revoked (первичное pairing — KC-004).
+  - [x] B. Deep links — проверены в KC-007 (2026-10-04); схема в финальной сборке не менялась.
+  - [x] C. Screenshot Cleanup — по одному событию на сессию (2/2/0, 1/1/0), корректные счётчики.
+  - [x] D. Offline → online — событие 2/2/0 создано offline, пережило перезапуск, принято после восстановления сети; `event_id` сохранился, дублей нет.
+  - [x] E. Kill during delivery — перезапуск с неподтверждённым событием: без потерь, тот же `event_id`, одна запись в Katana.
+  - [x] F. Revoke — 401 → `requires_repair`; после перезапуска отозванный токен не использовался; повторное pairing успешно.
+  - [x] G. Update over existing app — финальный IPA поверх; Bundle ID `app.katana.connector` не изменился; Keychain, Capability Lab и локальные данные сохранились.
+  - [x] H. Capability Lab — результаты сохранились; capability report содержит 18 capabilities (probes — KC-008).
+  - [x] I. Privacy / network verification — подтверждено пользователем и Katana: ровно 7 разрешённых полей payload; фото, идентификаторы и метаданные не передавались.
+  - [x] J. Final smoke test — ровно одно событие 1/1/0; повторная синхронизация без дубля.
+- **Заметки:** ручная проверка 2026-10-04 подтверждена пользователем и Katana (детали — `TESTING.md`, Release checklist v0.1). После закрытия KC-009 Draft PR #1 переводится в Ready for review; слияние — отдельным решением.
