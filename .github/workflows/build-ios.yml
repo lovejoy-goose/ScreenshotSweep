@@ -19,12 +19,42 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
+      - name: Pick iPhone Simulator
+        id: sim
+        run: |
+          # Newest available iOS runtime, first iPhone on it — no hardcoded device names.
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, re, sys
+          devices = json.load(sys.stdin)["devices"]
+          def version(runtime):
+              return [int(x) for x in re.findall(r"\d+", runtime.rsplit("iOS", 1)[-1])]
+          runtimes = sorted((r for r in devices if ".SimRuntime.iOS-" in r), key=version, reverse=True)
+          for runtime in runtimes:
+              for device in devices[runtime]:
+                  if device.get("isAvailable") and device["name"].startswith("iPhone"):
+                      print(device["udid"]); sys.exit(0)
+          sys.exit("No available iPhone simulator")
+          ')
+          xcrun simctl list devices available | grep "$UDID"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+      - name: Unit tests (iOS Simulator)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project KatanaConnector.xcodeproj \
+            -scheme KatanaConnector \
+            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath build-tests \
+            CODE_SIGNING_ALLOWED=NO \
+            test
+
       - name: Build unsigned .app
         run: |
           set -o pipefail
           xcodebuild \
-            -project ScreenshotSweep.xcodeproj \
-            -scheme ScreenshotSweep \
+            -project KatanaConnector.xcodeproj \
+            -scheme KatanaConnector \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
@@ -36,15 +66,25 @@ jobs:
 
       - name: Package .ipa
         run: |
-          APP=build/Build/Products/Release-iphoneos/ScreenshotSweep.app
+          APP=build/Build/Products/Release-iphoneos/KatanaConnector.app
           test -d "$APP"
+          # The custom URL scheme must be registered in the built app.
+          plutil -extract CFBundleURLTypes.0.CFBundleURLSchemes.0 raw -o - "$APP/Info.plist" | grep -qx "katana-connector"
+          # Usage descriptions for camera, When-In-Use location and motion must be present...
+          for key in NSCameraUsageDescription NSLocationWhenInUseUsageDescription NSMotionUsageDescription NSPhotoLibraryUsageDescription; do
+            plutil -extract "$key" xml1 -o - "$APP/Info.plist" > /dev/null
+          done
+          # ...and no Always location, background modes or entitlements.
+          for key in NSLocationAlwaysUsageDescription NSLocationAlwaysAndWhenInUseUsageDescription UIBackgroundModes; do
+            if plutil -extract "$key" xml1 -o - "$APP/Info.plist" > /dev/null 2>&1; then echo "Unexpected $key"; exit 1; fi
+          done
           rm -rf Payload && mkdir Payload
           cp -R "$APP" Payload/
-          zip -qry ScreenshotSweep.ipa Payload
-          ls -lh ScreenshotSweep.ipa
+          zip -qry KatanaConnector.ipa Payload
+          ls -lh KatanaConnector.ipa
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ScreenshotSweep-unsigned-ipa
-          path: ScreenshotSweep.ipa
+          name: katana-connector-unsigned-ipa
+          path: KatanaConnector.ipa
           if-no-files-found: error

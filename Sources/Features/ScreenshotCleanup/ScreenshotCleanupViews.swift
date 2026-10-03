@@ -1,39 +1,60 @@
 import Photos
 import SwiftUI
 
-struct RootView: View {
+/// Entry point of the Screenshot Cleanup feature (from Dashboard or a `katana-connector://open`
+/// link). Photo access is requested only by the «Разрешить доступ к фото» button here —
+/// never at app launch and never just by opening the screen.
+struct ScreenshotCleanupView: View {
     @EnvironmentObject var store: SweepStore
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
-            content
-                .navigationTitle("Скриншоты")
-                .navigationBarTitleDisplayMode(.inline)
-        }
-        .onAppear { store.start() }
-        .alert("Ошибка", isPresented: Binding(
-            get: { store.errorMessage != nil },
-            set: { if !$0 { store.errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: { Text(store.errorMessage ?? "") }
-        .alert("Готово", isPresented: Binding(
-            get: { store.infoMessage != nil },
-            set: { if !$0 { store.infoMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: { Text(store.infoMessage ?? "") }
+        content
+            .navigationTitle("Скриншоты")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarBackButtonHidden(true)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button { dismiss() } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.backward")
+                            Text("Главная")
+                        }
+                    }
+                }
+            }
+            .onAppear { store.refreshAccess() }
+            .alert("Ошибка", isPresented: Binding(
+                get: { store.errorMessage != nil },
+                set: { if !$0 { store.errorMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: { Text(store.errorMessage ?? "") }
+            .alert("Готово", isPresented: Binding(
+                get: { store.infoMessage != nil },
+                set: { if !$0 { store.infoMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: { Text(store.infoMessage ?? "") }
     }
 
     @ViewBuilder private var content: some View {
         switch store.access {
-        case .unknown, .notDetermined:
-            ProgressView("Запрашиваем доступ к фото…")
+        case .unknown:
+            ProgressView()
+        case .notDetermined:
+            MessageView(
+                icon: "photo.on.rectangle.angled",
+                title: "Доступ к скриншотам",
+                text: "Katana Connector покажет ваши скриншоты, чтобы вы решили, какие удалить. Фото не отправляются в Katana, а удаление происходит только после вашего подтверждения.",
+                buttonTitle: "Разрешить доступ к фото",
+                action: store.requestAccess
+            )
         case .denied:
             MessageView(
                 icon: "lock",
                 title: "Нет доступа к фото",
-                text: "Разрешите доступ в Настройках → ScreenshotSweep → Фото → «Все фото», чтобы увидеть скриншоты.",
+                text: "Разрешите доступ в Настройках → Katana Connector → Фото → «Все фото», чтобы увидеть скриншоты.",
                 buttonTitle: "Открыть Настройки",
                 action: store.openSettings
             )
@@ -47,26 +68,6 @@ struct RootView: View {
         case .limited, .full:
             SweepView()
         }
-    }
-}
-
-struct MessageView: View {
-    let icon: String
-    let title: String
-    let text: String
-    let buttonTitle: String?
-    let action: (() -> Void)?
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: icon).font(.system(size: 48)).foregroundStyle(.secondary)
-            Text(title).font(.title3.bold())
-            Text(text).multilineTextAlignment(.center).foregroundStyle(.secondary)
-            if let buttonTitle, let action {
-                Button(buttonTitle, action: action).buttonStyle(.borderedProminent)
-            }
-        }
-        .padding(32)
     }
 }
 
@@ -110,6 +111,7 @@ struct SweepView: View {
                 )
                 Spacer()
             }
+            FinishSessionButton()
         }
         .padding(.horizontal)
         .padding(.bottom)

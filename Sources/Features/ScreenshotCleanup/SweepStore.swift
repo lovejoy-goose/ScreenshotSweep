@@ -32,7 +32,15 @@ final class SweepStore: NSObject, ObservableObject {
     @Published var infoMessage: String?
 
     let imageManager = PHCachingImageManager()
+    /// Receives decisions and successful deletions to build the private session summary.
+    /// It never touches the photo library.
+    let session: CleanupSessionRecorder
     private var observing = false
+
+    init(session: CleanupSessionRecorder) {
+        self.session = session
+        super.init()
+    }
 
     var current: PHAsset? { history.count < assets.count ? assets[history.count] : nil }
     var processedCount: Int { history.count }
@@ -43,12 +51,17 @@ final class SweepStore: NSObject, ObservableObject {
 
     // MARK: Authorization
 
-    func start() {
+    /// Reads the current status without any system prompt (on entering the feature).
+    func refreshAccess() {
         updateAccess(PHPhotoLibrary.authorizationStatus(for: .readWrite))
-        if access == .notDetermined {
-            PHPhotoLibrary.requestAuthorization(for: .readWrite) { status in
-                Task { @MainActor in self.updateAccess(status) }
-            }
+    }
+
+    /// Shows the system prompt. Only called from «Разрешить доступ к фото» inside the feature,
+    /// never on entering it — also not when it was opened by a URL.
+    func requestAccess() {
+        guard access == .notDetermined else { return }
+        PHPhotoLibrary.requestAuthorization(for: .readWrite) { status in
+            Task { @MainActor in self.updateAccess(status) }
         }
     }
 
@@ -112,6 +125,7 @@ final class SweepStore: NSObject, ObservableObject {
         history = keptHistory
         decisions = decisions.filter { decidedSet.contains($0.key) }
         assets = keptHistory.compactMap { byID[$0] } + fetched.filter { !decidedSet.contains($0.localIdentifier) }
+        session.libraryChanged(existing: Set(byID.keys))
         isLoading = false
     }
 
@@ -121,6 +135,7 @@ final class SweepStore: NSObject, ObservableObject {
         guard let asset = current else { return }
         decisions[asset.localIdentifier] = decision
         history.append(asset.localIdentifier)
+        session.recordDecision(decision == .keep ? .keep : .delete, assetID: asset.localIdentifier)
         if history.count % Self.batchSize == 0 || current == nil {
             if !candidates.isEmpty || current == nil { showReview = true }
         }
@@ -129,12 +144,14 @@ final class SweepStore: NSObject, ObservableObject {
     func undo() {
         guard let last = history.popLast() else { return }
         decisions[last] = nil
+        session.undo(assetID: last)
     }
 
     func toggleCandidate(_ asset: PHAsset) {
         let id = asset.localIdentifier
         guard decisions[id] != nil else { return }
         decisions[id] = decisions[id] == .delete ? .keep : .delete
+        session.change(assetID: id, to: decisions[id] == .delete ? .delete : .keep)
     }
 
     // MARK: Deletion (the only place that modifies the library)
@@ -144,11 +161,14 @@ final class SweepStore: NSObject, ObservableObject {
         guard !toDelete.isEmpty, !isDeleting else { return }
         isDeleting = true
         let count = toDelete.count
+        let deletedIDs = toDelete.map(\.localIdentifier)
+        session.willDelete(assetIDs: deletedIDs)
         PHPhotoLibrary.shared().performChanges({
             PHAssetChangeRequest.deleteAssets(toDelete as NSArray)
         }) { success, error in
             Task { @MainActor in
                 self.isDeleting = false
+                self.session.didFinishDeletion(assetIDs: deletedIDs, success: success)
                 if success {
                     self.deletedTotal += count
                     self.infoMessage = "Удалено: \(count). Скриншоты лежат в «Недавно удалённых» ещё 30 дней."

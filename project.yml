@@ -1,6 +1,6 @@
-name: ScreenshotSweep
+name: KatanaConnector
 options:
-  bundleIdPrefix: local.sweep
+  bundleIdPrefix: app.katana
   deploymentTarget:
     iOS: "16.0"
   createIntermediateGroups: true
@@ -12,23 +12,45 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
 
 targets:
-  ScreenshotSweep:
+  KatanaConnector:
     type: application
     platform: iOS
     sources:
       - Sources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: local.sweep.ScreenshotSweep
-        PRODUCT_NAME: ScreenshotSweep
+        PRODUCT_BUNDLE_IDENTIFIER: app.katana.connector
+        PRODUCT_NAME: KatanaConnector
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: ScreenshotSweep
+        # Base plist with CFBundleURLTypes (scheme katana-connector, URL v1); generated keys are merged in.
+        INFOPLIST_FILE: Config/KatanaConnector-Info.plist
+        INFOPLIST_KEY_CFBundleDisplayName: Katana Connector
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
-        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "ScreenshotSweep показывает ваши скриншоты, чтобы вы могли решить, какие удалить. Ничего не удаляется без вашего подтверждения."
+        INFOPLIST_KEY_NSCameraUsageDescription: "Katana Connector использует камеру только для сканирования QR-кода подключения к Katana и для ручной проверки камеры в Capability Lab. Изображение с камеры не сохраняется и никуда не отправляется."
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "Katana Connector определяет местоположение один раз, только когда вы нажимаете «Проверить геолокацию» в Capability Lab. Координаты не сохраняются и не отправляются — Katana узнаёт только, что проверка прошла."
+        INFOPLIST_KEY_NSMotionUsageDescription: "Katana Connector получает одно событие датчиков движения, только когда вы нажимаете «Проверить датчики движения» в Capability Lab. Данные о движении не сохраняются и не отправляются."
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "Katana Connector показывает ваши скриншоты в разделе «Разобрать скриншоты», чтобы вы могли решить, какие удалить. Ничего не удаляется без вашего подтверждения, фото не отправляются в сеть."
         CODE_SIGN_STYLE: Manual
         CODE_SIGNING_ALLOWED: NO
         CODE_SIGNING_REQUIRED: NO
-    scheme: {}
+    scheme:
+      testTargets:
+        - KatanaConnectorTests
+
+  # Core unit tests: compiles Sources/Core directly, no host app and no UI.
+  KatanaConnectorTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - Sources/Core
+      - Tests/KatanaConnectorTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.katana.connector.tests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
