@@ -17,8 +17,12 @@ struct StaticCapabilitySnapshotProvider: CapabilitySnapshotProviding {
             // Implemented in Capability Lab; the real device check may turn this into
             // `unsupported_device` (CapabilityLabCoordinator.refreshAuthorizations).
             availability = .available
-        case .healthKit, .coreNFC:
+        case .healthKit, .coreNFC, .coreNFCWrite, .appGroup, .shareExtension:
+            // Not provisioned in this build (D-046); the code exists, the entitlement does not.
             availability = .missingEntitlement
+        case .locationAlways, .regionMonitoring:
+            // Manual probes since v0.3; the device check may turn this into `unsupported_device`.
+            availability = .available
         case .visionOCR, .files, .backgroundLocation, .bluetooth, .localNetwork, .contacts,
              .calendar, .reminders, .faceID, .microphone, .speech:
             availability = .planned
@@ -38,13 +42,18 @@ struct CapabilityRegistry: Sendable {
         CapabilityDescriptor(id: .microphone, title: "Микрофон", category: .media),
         CapabilityDescriptor(id: .speech, title: "Распознавание речи", category: .media),
         CapabilityDescriptor(id: .files, title: "Файлы", category: .documents),
+        CapabilityDescriptor(id: .shareExtension, title: "Поделиться (Share Extension)", category: .documents),
+        CapabilityDescriptor(id: .appGroup, title: "App Group", category: .documents),
         CapabilityDescriptor(id: .currentLocation, title: "Текущая геолокация", category: .location),
         CapabilityDescriptor(id: .backgroundLocation, title: "Фоновая геолокация", category: .location),
+        CapabilityDescriptor(id: .locationAlways, title: "Геолокация «Всегда»", category: .location),
+        CapabilityDescriptor(id: .regionMonitoring, title: "Геозоны (region monitoring)", category: .location),
         CapabilityDescriptor(id: .motion, title: "Движение", category: .sensors),
         CapabilityDescriptor(id: .localNotifications, title: "Локальные уведомления", category: .notifications),
         CapabilityDescriptor(id: .bluetooth, title: "Bluetooth", category: .connectivity),
         CapabilityDescriptor(id: .localNetwork, title: "Локальная сеть", category: .connectivity),
-        CapabilityDescriptor(id: .coreNFC, title: "NFC", category: .connectivity),
+        CapabilityDescriptor(id: .coreNFC, title: "NFC: чтение", category: .connectivity),
+        CapabilityDescriptor(id: .coreNFCWrite, title: "NFC: запись", category: .connectivity),
         CapabilityDescriptor(id: .contacts, title: "Контакты", category: .personalData),
         CapabilityDescriptor(id: .calendar, title: "Календарь", category: .personalData),
         CapabilityDescriptor(id: .reminders, title: "Напоминания", category: .personalData),

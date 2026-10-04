@@ -30,12 +30,16 @@ struct KatanaConnectorApp: App {
 
     init() {
         let tokenStore = KeychainTokenStore()
+        // One geofence adapter: its delegate is set at launch; it also serves the v0.3 probes.
+        let geofenceAccess = SystemGeofenceAccess()
         // Probes only touch the system when the user taps a probe button in Capability Lab.
         let lab = CapabilityLabCoordinator(store: .applicationSupport(), probes: [
             CameraProbe(system: SystemCameraAccess()),
             CurrentLocationProbe(system: SystemLocationAccess()),
             MotionProbe(system: SystemMotionAccess()),
             LocalNotificationsProbe(system: SystemNotificationAccess()),
+            LocationAlwaysProbe(system: geofenceAccess),
+            RegionMonitoringProbe(system: geofenceAccess),
         ])
         // The registry reads the same snapshot store, so reports and Dashboard see probe results.
         let registry = lab.registry
@@ -63,7 +67,7 @@ struct KatanaConnectorApp: App {
         let nfc = NFCActionCoordinator(store: NFCActionsFile.applicationSupportStore(), tags: SystemNFCTagAccess(), sink: delivery)
         actionDraftCoordinator.register(nfc, for: .nfcAction)
         let geofenceCoordinator = GeofenceCoordinator(store: GeofencesFile.applicationSupportStore(),
-                                                      system: SystemGeofenceAccess(), sink: delivery)
+                                                      system: geofenceAccess, sink: delivery)
         actionDraftCoordinator.register(geofenceCoordinator, for: .geofenceCreate)
         // Crossings that relaunched the app are delivered as soon as the handler is installed.
         Task { await geofenceCoordinator.start() }

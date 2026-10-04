@@ -11,6 +11,7 @@ struct DashboardView: View {
 
     private static let highlighted: [CapabilityID] = [
         .photos, .camera, .currentLocation, .motion, .localNotifications, .backgroundLocation, .healthKit,
+        .locationAlways, .regionMonitoring, .coreNFC, .shareExtension,
     ]
 
     var body: some View {
@@ -91,6 +92,7 @@ struct DashboardView: View {
                 LabeledContent("Connector Core", value: "pairing + events")
                 LabeledContent("Capability Lab", value: "4 probes")
                 LabeledContent("Контекст и действия", value: "v0.2")
+                LabeledContent("Физические триггеры", value: "v0.3")
             }
             .font(.footnote)
         }

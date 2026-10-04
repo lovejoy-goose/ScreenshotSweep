@@ -175,6 +175,9 @@ final class SystemGeofenceAccess: NSObject, GeofenceSystem, CLLocationManagerDel
     }
 }
 
+/// The same adapter answers the Capability Lab probes «Всегда» and «Геозоны» (D-051).
+extension SystemGeofenceAccess: LocationAlwaysSystem {}
+
 private final class ResignFlag: @unchecked Sendable {
     private let lock = NSLock()
     private var value = false

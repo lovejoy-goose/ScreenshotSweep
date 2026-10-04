@@ -714,6 +714,7 @@ final class CapabilityLabTests: XCTestCase {
         XCTAssertEqual(CapabilityProbeDetail.allCases.map(\.rawValue), [
             "camera_frame_received", "location_fix_received", "motion_sample_received", "test_notification_scheduled",
             "permission_denied", "permission_restricted", "unavailable", "timed_out", "cancelled", "system_error",
+            "always_authorized", "region_monitoring_available", "requires_settings",
         ])
     }
 

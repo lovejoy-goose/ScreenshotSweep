@@ -105,3 +105,53 @@ struct LocalNotificationsProbe: CapabilityProbe {
         return .testNotificationScheduled
     }
 }
+
+/// v0.3: is «Всегда» granted? Asks for it only from this probe's button (D-051).
+struct LocationAlwaysProbe: CapabilityProbe {
+    let id = CapabilityID.locationAlways
+    let timeout: TimeInterval = 10
+    let system: any LocationAlwaysSystem
+
+    func availability() async -> CapabilityAvailability { .available }
+
+    func authorization() async -> CapabilityAuthorization {
+        CapabilityAuthorizationMapping.locationAlways(await system.permission())
+    }
+
+    func requestAuthorization() async -> CapabilityAuthorization {
+        CapabilityAuthorizationMapping.locationAlways(await system.requestAlwaysPermission())
+    }
+
+    /// With When In Use, iOS may offer the upgrade once; otherwise only Settings can change it.
+    func check() async throws -> CapabilityProbeDetail {
+        var permission = await system.permission()
+        if permission == .authorizedWhenInUse { permission = await system.requestAlwaysPermission() }
+        guard permission == .authorizedAlways else { throw CapabilityProbeError.requiresSettings }
+        return .alwaysAuthorized
+    }
+}
+
+/// v0.3: can geofences work here (device support and «Всегда»)? Registers no region.
+struct RegionMonitoringProbe: CapabilityProbe {
+    let id = CapabilityID.regionMonitoring
+    let timeout: TimeInterval = 10
+    let system: any LocationAlwaysSystem
+
+    func availability() async -> CapabilityAvailability {
+        await system.isMonitoringAvailable() ? .available : .unsupportedDevice
+    }
+
+    func authorization() async -> CapabilityAuthorization {
+        CapabilityAuthorizationMapping.locationAlways(await system.permission())
+    }
+
+    func requestAuthorization() async -> CapabilityAuthorization {
+        CapabilityAuthorizationMapping.locationAlways(await system.requestAlwaysPermission())
+    }
+
+    func check() async throws -> CapabilityProbeDetail {
+        guard await system.permission() == .authorizedAlways else { throw CapabilityProbeError.requiresSettings }
+        return .regionMonitoringAvailable
+    }
+}
+
