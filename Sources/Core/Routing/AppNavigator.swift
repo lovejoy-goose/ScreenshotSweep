@@ -20,12 +20,15 @@ final class AppNavigator: ObservableObject {
         return true
     }
 
-    /// Shows exactly `[route]` on top of Dashboard: whatever was open (and its sheets) is closed.
+    /// Shows exactly the link's routes on top of Dashboard: whatever was open (and its sheets) is closed.
     /// Repeating the same link while that screen is already shown changes nothing.
     func apply(_ action: ConnectorURLAction) {
         switch action {
         case .open(let feature):
             let target = [feature.route]
+            if path != target { path = target }
+        case .openDestination(let destination):
+            let target = destination.routes
             if path != target { path = target }
         }
     }

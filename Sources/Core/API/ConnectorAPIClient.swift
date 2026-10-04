@@ -99,11 +99,15 @@ struct URLSessionConnectorAPIClient: ConnectorAPI {
     }
 
     func makeRequest(_ route: ConnectorRoute, body: Data?, credentials: PairingCredentials) throws -> URLRequest {
+        try makeRequest(method: route.method, pathComponents: route.pathComponents, body: body, credentials: credentials)
+    }
+
+    func makeRequest(method: String, pathComponents: [String], body: Data?, credentials: PairingCredentials) throws -> URLRequest {
         let baseURL = credentials.device.baseURL
         guard policy.permits(baseURL) else { throw ConnectorAPIError.insecureHost }
-        let url = route.pathComponents.reduce(baseURL) { $0.appendingPathComponent($1) }
+        let url = pathComponents.reduce(baseURL) { $0.appendingPathComponent($1) }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Self.timeout)
-        request.httpMethod = route.method
+        request.httpMethod = method
         request.setValue("Bearer \(credentials.token.secretValue)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body {
@@ -146,5 +150,46 @@ struct URLSessionConnectorAPIClient: ConnectorAPI {
         }
         if let error = ConnectorAPIError.classify(statusCode: result.1.statusCode) { throw error }
         return result.0
+    }
+}
+
+// MARK: - Reminder drafts (v0.2, D-041)
+
+extension URLSessionConnectorAPIClient: ReminderDraftFetching {
+    static func reminderDraftPathComponents(_ draftID: UUID) -> [String] {
+        ["api", "connector", "reminder-drafts", draftID.uuidString.lowercased()]
+    }
+
+    /// `GET /api/connector/reminder-drafts/{draft_id}` with the Bearer token read right before the
+    /// request. No redirects, ≤ 64 KiB, strict validation; never retried automatically.
+    func fetchReminderDraft(id: UUID) async throws -> ReminderDraft {
+        let credentials: PairingCredentials
+        do {
+            credentials = try loadCredentials()
+        } catch ConnectorAPIError.unauthorized {
+            throw ReminderDraftError.unauthorized
+        } catch {
+            throw ReminderDraftError.notPaired
+        }
+        let request: URLRequest
+        do {
+            request = try makeRequest(method: "GET", pathComponents: Self.reminderDraftPathComponents(id), body: nil,
+                                      credentials: credentials)
+        } catch {
+            throw ReminderDraftError.invalidResponse
+        }
+        let result: (Data, HTTPURLResponse)
+        do {
+            result = try await transport.perform(request)
+        } catch ConnectorTransportError.network {
+            throw ReminderDraftError.offline
+        } catch {
+            throw ReminderDraftError.invalidResponse
+        }
+        if let error = ReminderDraftError.classify(statusCode: result.1.statusCode) { throw error }
+        guard let response = try? ConnectorJSON.makeDecoder().decode(ReminderDraftResponse.self, from: result.0) else {
+            throw ReminderDraftError.invalidResponse
+        }
+        return try response.validated(requestedID: id, now: now())
     }
 }

@@ -27,6 +27,14 @@ struct RootView: View {
                         PairingView()
                     case .capabilityLab:
                         CapabilityLabView()
+                    case .activityJournal:
+                        ActivityJournalView()
+                    case .locationCheckIn:
+                        LocationCheckInView()
+                    case .reminders:
+                        RemindersView()
+                    case .reminderDraft(let id):
+                        ReminderDraftView(draftID: id)
                     }
                 }
         }
