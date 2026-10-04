@@ -22,6 +22,8 @@ struct KatanaConnectorApp: App {
     @StateObject private var actionDrafts: ActionDraftCoordinator
     // Triggers only open a preview; native Core NFC stays off without its entitlement (D-046).
     @StateObject private var nfcActions: NFCActionCoordinator
+    // Region delegate is set at launch (also a background relaunch by iOS); Always only by button.
+    @StateObject private var geofences: GeofenceCoordinator
     private let capabilityRegistry: CapabilityRegistry
 
     init() {
@@ -58,6 +60,11 @@ struct KatanaConnectorApp: App {
                                                             fetcher: apiClient, sink: delivery)
         let nfc = NFCActionCoordinator(store: NFCActionsFile.applicationSupportStore(), tags: SystemNFCTagAccess(), sink: delivery)
         actionDraftCoordinator.register(nfc, for: .nfcAction)
+        let geofenceCoordinator = GeofenceCoordinator(store: GeofencesFile.applicationSupportStore(),
+                                                      system: SystemGeofenceAccess(), sink: delivery)
+        actionDraftCoordinator.register(geofenceCoordinator, for: .geofenceCreate)
+        // Crossings that relaunched the app are delivered as soon as the handler is installed.
+        Task { await geofenceCoordinator.start() }
 
         capabilityRegistry = registry
         _sweepStore = StateObject(wrappedValue: SweepStore(session: session))
@@ -70,6 +77,7 @@ struct KatanaConnectorApp: App {
         _reminders = StateObject(wrappedValue: reminderCoordinator)
         _actionDrafts = StateObject(wrappedValue: actionDraftCoordinator)
         _nfcActions = StateObject(wrappedValue: nfc)
+        _geofences = StateObject(wrappedValue: geofenceCoordinator)
     }
 
     var body: some Scene {
@@ -85,6 +93,7 @@ struct KatanaConnectorApp: App {
                 .environmentObject(reminders)
                 .environmentObject(actionDrafts)
                 .environmentObject(nfcActions)
+                .environmentObject(geofences)
                 .task {
                     // Status read only: no prompts, no probes.
                     await capabilityLab.refreshAuthorizations()
@@ -102,11 +111,17 @@ struct KatanaConnectorApp: App {
                 Task { await reminders.retryPendingEvents() }
                 Task { await actionDrafts.retryPendingEvents() }
                 Task { await nfcActions.retryPendingEvents() }
+                geofences.isAppActive = true
+                Task {
+                    await geofences.reconcile()
+                    await geofences.saveEvents()
+                }
             case .background:
                 // iOS does not let the app observe in the background; the session says so honestly.
                 Task { await activityJournal.appDidEnterBackground() }
                 // An unconfirmed check-in fix is not kept while the app is in the background.
                 locationCheckIn.discardPreview()
+                geofences.isAppActive = false
             default:
                 break
             }

@@ -325,12 +325,12 @@ final class ContextReleaseValidationTests: XCTestCase {
 
     func testInfoPlistHasNoAlwaysBackgroundOrEntitlements() throws {
         let project = try String(contentsOf: repositoryRoot.appendingPathComponent("project.yml"))
-        for forbidden in ["NSLocationAlways", "UIBackgroundModes", "CODE_SIGN_ENTITLEMENTS", "entitlements", "aps-environment",
+        for forbidden in ["NSLocationAlwaysUsageDescription", "UIBackgroundModes", "CODE_SIGN_ENTITLEMENTS", "entitlements", "aps-environment",
                           "NSBluetooth", "NFCReaderUsageDescription", "NSHealth", "BGTaskScheduler"] {
             XCTAssertFalse(project.contains(forbidden), forbidden)
         }
         let usageKeys = project.split(separator: "\n").filter { $0.contains("UsageDescription") }
-        XCTAssertEqual(usageKeys.count, 4, "camera, location (When In Use), motion, photos — nothing new in v0.2")
+        XCTAssertEqual(usageKeys.count, 5, "camera, location (When In Use), motion, photos; Always for geofences since v0.3 (D-049)")
         let location = try XCTUnwrap(usageKeys.first { $0.contains("NSLocationWhenInUseUsageDescription") })
         XCTAssertTrue(location.contains("Location Check-in") && location.contains("подтверждения"))
         let motion = try XCTUnwrap(usageKeys.first { $0.contains("NSMotionUsageDescription") })

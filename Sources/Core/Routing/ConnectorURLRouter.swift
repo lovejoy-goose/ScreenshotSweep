@@ -16,6 +16,7 @@ enum AppRoute: Hashable, Sendable {
     case nfcActions
     /// Preview of one registered NFC action opened by a Shortcuts link (v0.3). Runs nothing by itself.
     case nfcActionPreview(UUID)
+    case geofences
 }
 
 /// Features a `katana-connector://open` link may open. Wire values are part of URL v1.

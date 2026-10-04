@@ -71,6 +71,9 @@ struct DashboardView: View {
                 NavigationLink(value: AppRoute.nfcActions) {
                     Label("NFC-действия", systemImage: "wave.3.right")
                 }
+                NavigationLink(value: AppRoute.geofences) {
+                    Label("Геозоны", systemImage: "mappin.circle")
+                }
             }
 
             Section("Возможности устройства") {

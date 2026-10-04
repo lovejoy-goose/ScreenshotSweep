@@ -99,7 +99,7 @@ final class LocationCheckInTests: XCTestCase {
         }
         let project = try String(contentsOf: repositoryRoot.appendingPathComponent("project.yml"))
         XCTAssertTrue(project.contains("Location Check-in"), "usage text names the feature honestly")
-        XCTAssertFalse(project.contains("NSLocationAlways"))
+        XCTAssertFalse(project.contains("NSLocationAlwaysUsageDescription"), "Always only for geofences (D-049)")
         XCTAssertFalse(project.contains("UIBackgroundModes"))
     }
 
