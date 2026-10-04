@@ -126,11 +126,13 @@ final class ContextInfrastructureTests: XCTestCase {
     }
 
     func testEventTypesAndKeyCountsAreStable() {
-        XCTAssertEqual(ContextEventType.allCases.map(\.rawValue), [
+        XCTAssertEqual(ContextEventType.version02.map(\.rawValue), [
             "activity.snapshot.completed", "activity.session.completed", "location.check_in.created",
             "reminder.local.scheduled", "reminder.local.cancelled",
         ])
-        XCTAssertEqual(ContextEventType.allCases.map(\.payloadKeys.count), [5, 12, 7, 5, 3])
+        XCTAssertEqual(ContextEventType.version02.map(\.payloadKeys.count), [5, 12, 7, 5, 3])
+        XCTAssertEqual(ContextEventType.allCases, ContextEventType.version02 + ContextEventType.version03,
+                       "v0.2 wire values unchanged; v0.3 only adds")
         for type in ContextEventType.allCases {
             XCTAssertTrue(ConnectorEvent(type: type.rawValue, occurredAt: Date(), sessionID: UUID(), payload: .null).hasValidType)
             for forbidden in ["title", "body", "token", "device_token", "code", "base_url", "device_id", "altitude", "speed",

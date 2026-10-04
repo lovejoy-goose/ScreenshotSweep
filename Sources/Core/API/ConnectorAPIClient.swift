@@ -193,3 +193,41 @@ extension URLSessionConnectorAPIClient: ReminderDraftFetching {
         return try response.validated(requestedID: id, now: now())
     }
 }
+
+// MARK: - Action drafts (v0.3, D-047)
+
+extension URLSessionConnectorAPIClient: ActionDraftFetching {
+    static func actionDraftPathComponents(_ draftID: UUID) -> [String] {
+        ["api", "connector", "action-drafts", draftID.uuidString.lowercased()]
+    }
+
+    /// `GET /api/connector/action-drafts/{draft_id}`: Bearer read right before the request, no
+    /// redirects, ≤ 64 KiB, strict schema, TTL on the server clock; never retried automatically.
+    func fetchActionDraft(id: UUID) async throws -> ActionDraft {
+        let credentials: PairingCredentials
+        do {
+            credentials = try loadCredentials()
+        } catch ConnectorAPIError.unauthorized {
+            throw ActionDraftError.unauthorized
+        } catch {
+            throw ActionDraftError.notPaired
+        }
+        let request: URLRequest
+        do {
+            request = try makeRequest(method: "GET", pathComponents: Self.actionDraftPathComponents(id), body: nil,
+                                      credentials: credentials)
+        } catch {
+            throw ActionDraftError.invalidResponse
+        }
+        let result: (Data, HTTPURLResponse)
+        do {
+            result = try await transport.perform(request)
+        } catch ConnectorTransportError.network {
+            throw ActionDraftError.offline
+        } catch {
+            throw ActionDraftError.invalidResponse
+        }
+        if let error = ActionDraftError.classify(statusCode: result.1.statusCode) { throw error }
+        return try ActionDraftParser.parse(result.0, requestedID: id)
+    }
+}

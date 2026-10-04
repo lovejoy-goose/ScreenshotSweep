@@ -120,7 +120,7 @@ final class ContextReleaseValidationTests: XCTestCase {
 
         let events = sentEvents()
         let types = events.compactMap { $0["type"] as? String }
-        XCTAssertEqual(Set(types), Set(ContextEventType.allCases.map(\.rawValue)))
+        XCTAssertEqual(Set(types), Set(ContextEventType.version02.map(\.rawValue)))
         XCTAssertEqual(types.count, 5, "exactly one event per action")
         XCTAssertEqual(Set(events.compactMap { $0["event_id"] as? String }).count, 5)
         for event in events {
@@ -320,7 +320,7 @@ final class ContextReleaseValidationTests: XCTestCase {
 
         let project = try String(contentsOf: repositoryRoot.appendingPathComponent("project.yml"))
         XCTAssertTrue(project.contains("PRODUCT_BUNDLE_IDENTIFIER: app.katana.connector\n"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION: \"0.2.0\""))
+        XCTAssertTrue(project.contains("MARKETING_VERSION: \"0.3.0\""))
     }
 
     func testInfoPlistHasNoAlwaysBackgroundOrEntitlements() throws {

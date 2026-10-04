@@ -35,6 +35,8 @@ struct RootView: View {
                         RemindersView()
                     case .reminderDraft(let id):
                         ReminderDraftView(draftID: id)
+                    case .actionDraft(let id):
+                        ActionDraftView(draftID: id)
                     }
                 }
         }

@@ -18,6 +18,8 @@ struct KatanaConnectorApp: App {
     @StateObject private var locationCheckIn: LocationCheckInCoordinator
     // Drafts are loaded and notifications created only by buttons on the draft screen.
     @StateObject private var reminders: ReminderCoordinator
+    // Action drafts are loaded and performed only by buttons on the draft screen (v0.3).
+    @StateObject private var actionDrafts: ActionDraftCoordinator
     private let capabilityRegistry: CapabilityRegistry
 
     init() {
@@ -50,6 +52,8 @@ struct KatanaConnectorApp: App {
                                                  system: SystemCheckInLocationAccess(), sink: delivery)
         let reminderCoordinator = ReminderCoordinator(store: ReminderStoreFile.applicationSupportStore(), fetcher: apiClient,
                                                       notifications: SystemReminderNotifications(), sink: delivery)
+        let actionDraftCoordinator = ActionDraftCoordinator(store: ActionDraftStoreFile.applicationSupportStore(),
+                                                            fetcher: apiClient, sink: delivery)
 
         capabilityRegistry = registry
         _sweepStore = StateObject(wrappedValue: SweepStore(session: session))
@@ -60,6 +64,7 @@ struct KatanaConnectorApp: App {
         _activityJournal = StateObject(wrappedValue: journal)
         _locationCheckIn = StateObject(wrappedValue: checkIn)
         _reminders = StateObject(wrappedValue: reminderCoordinator)
+        _actionDrafts = StateObject(wrappedValue: actionDraftCoordinator)
     }
 
     var body: some Scene {
@@ -73,6 +78,7 @@ struct KatanaConnectorApp: App {
                 .environmentObject(activityJournal)
                 .environmentObject(locationCheckIn)
                 .environmentObject(reminders)
+                .environmentObject(actionDrafts)
                 .task {
                     // Status read only: no prompts, no probes.
                     await capabilityLab.refreshAuthorizations()
@@ -88,6 +94,7 @@ struct KatanaConnectorApp: App {
                 Task { await activityJournal.appDidBecomeActive() }
                 // Events of reminders that could not be queued earlier, with their original IDs.
                 Task { await reminders.retryPendingEvents() }
+                Task { await actionDrafts.retryPendingEvents() }
             case .background:
                 // iOS does not let the app observe in the background; the session says so honestly.
                 Task { await activityJournal.appDidEnterBackground() }

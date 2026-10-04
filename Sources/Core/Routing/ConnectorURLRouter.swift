@@ -11,6 +11,8 @@ enum AppRoute: Hashable, Sendable {
     case reminders
     /// Screen of one Katana reminder draft. Opening it loads nothing by itself (D-041).
     case reminderDraft(UUID)
+    /// Screen of one Katana action draft (v0.3). Opening it loads nothing by itself (D-047).
+    case actionDraft(UUID)
 }
 
 /// Features a `katana-connector://open` link may open. Wire values are part of URL v1.
@@ -32,6 +34,8 @@ enum ConnectorURLDestination: Equatable, Sendable {
     case activityJournal
     case locationCheckIn
     case reminderDraft(UUID)
+    /// URL v3: `feature=action&draft_id=<uuid>`.
+    case actionDraft(UUID)
 
     /// Wire values of `feature` in URL v2.
     static let featureValues = ["activity_journal", "location_check_in", "reminder"]
@@ -41,6 +45,15 @@ enum ConnectorURLDestination: Equatable, Sendable {
         case .activityJournal: return "activity_journal"
         case .locationCheckIn: return "location_check_in"
         case .reminderDraft: return "reminder"
+        case .actionDraft: return "action"
+        }
+    }
+
+    /// URL version of the link.
+    var version: String {
+        switch self {
+        case .activityJournal, .locationCheckIn, .reminderDraft: return ConnectorURLRouter.version2
+        case .actionDraft: return ConnectorURLRouter.version3
         }
     }
 
@@ -50,6 +63,7 @@ enum ConnectorURLDestination: Equatable, Sendable {
         case .activityJournal: return [.activityJournal]
         case .locationCheckIn: return [.locationCheckIn]
         case .reminderDraft(let id): return [.reminders, .reminderDraft(id)]
+        case .actionDraft(let id): return [.actionDraft(id)]
         }
     }
 }
@@ -93,18 +107,22 @@ enum ConnectorURLRouter {
     static let host = "open"
     static let supportedVersion = "1"
     static let version2 = "2"
+    static let version3 = "3"
     static let maxLength = 2048
     static let allowedParameters: Set<String> = ["v", "feature"]
     /// Parameters any version may carry; each version then allows only its own.
-    private static let knownParameters: Set<String> = ["v", "feature", "draft_id"]
+    private static let knownParameters: Set<String> = ["v", "feature", "draft_id", "action_id"]
 
     static func url(for feature: ConnectorURLFeature) -> URL {
         URL(string: "\(scheme)://\(host)?v=\(supportedVersion)&feature=\(feature.rawValue)")!
     }
 
     static func url(for destination: ConnectorURLDestination) -> URL {
-        var text = "\(scheme)://\(host)?v=\(version2)&feature=\(destination.featureValue)"
-        if case .reminderDraft(let id) = destination { text += "&draft_id=\(id.uuidString.lowercased())" }
+        var text = "\(scheme)://\(host)?v=\(destination.version)&feature=\(destination.featureValue)"
+        switch destination {
+        case .reminderDraft(let id), .actionDraft(let id): text += "&draft_id=\(id.uuidString.lowercased())"
+        case .activityJournal, .locationCheckIn: break
+        }
         return URL(string: text)!
     }
 
@@ -139,12 +157,16 @@ enum ConnectorURLRouter {
         switch version {
         case supportedVersion:
             // v1 is unchanged: only `v` and `feature`.
-            guard parameters["draft_id"] == nil else { throw ConnectorURLError.unknownParameter }
+            guard parameters["draft_id"] == nil, parameters["action_id"] == nil else { throw ConnectorURLError.unknownParameter }
             guard let featureValue = parameters["feature"] else { throw ConnectorURLError.missingFeature }
             guard let feature = ConnectorURLFeature(rawValue: featureValue) else { throw ConnectorURLError.unknownFeature }
             return .open(feature)
         case version2:
+            // v2 is unchanged: `action_id` is unknown there.
+            guard parameters["action_id"] == nil else { throw ConnectorURLError.unknownParameter }
             return .openDestination(try parseVersion2(parameters, percentEncodedQuery: components.percentEncodedQuery))
+        case version3:
+            return .openDestination(try parseVersion3(parameters, percentEncodedQuery: components.percentEncodedQuery))
         default:
             throw ConnectorURLError.unsupportedVersion
         }
@@ -166,6 +188,25 @@ enum ConnectorURLRouter {
         default:
             // v1 features exist, but not in this version.
             if ConnectorURLFeature(rawValue: featureValue) != nil { throw ConnectorURLError.unsupportedVersion }
+            throw ConnectorURLError.unknownFeature
+        }
+    }
+
+    /// v3 (D-047): only opaque UUIDs; the link opens a screen and nothing else.
+    private static func parseVersion3(_ parameters: [String: String], percentEncodedQuery: String?) throws -> ConnectorURLDestination {
+        guard !(percentEncodedQuery ?? "").contains("%") else { throw ConnectorURLError.malformed }
+        guard let featureValue = parameters["feature"] else { throw ConnectorURLError.missingFeature }
+        switch featureValue {
+        case "action":
+            guard parameters["action_id"] == nil else { throw ConnectorURLError.unknownParameter }
+            guard let draftValue = parameters["draft_id"] else { throw ConnectorURLError.missingDraftID }
+            guard let id = canonicalUUID(draftValue) else { throw ConnectorURLError.invalidDraftID }
+            return .actionDraft(id)
+        default:
+            // Features of earlier versions exist, but not in this version.
+            if ConnectorURLFeature(rawValue: featureValue) != nil || ConnectorURLDestination.featureValues.contains(featureValue) {
+                throw ConnectorURLError.unsupportedVersion
+            }
             throw ConnectorURLError.unknownFeature
         }
     }
