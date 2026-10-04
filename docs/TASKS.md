@@ -327,6 +327,7 @@ Release **v0.1.0** опубликован 2026-10-04: tag `v0.1.0` → merge com
 | V3-005 | Capture: in-app + Share Extension target | **done** |
 | V3-006 | Capability Lab, Dashboard, integration/regression | **done** |
 | V3-007 | CI status, docs | **in review** |
+| V3-009 | Opt-in «Выполнять сразу после открытия» для NFC-действий (D-055) | in progress |
 | V3-008 | HTTPS-мост для постоянных NFC-меток (D-054) | in progress (клиент и контракт готовы; сервер Katana — ждёт доступа к репозиторию) |
 
 Весь milestone v0.3 — **in review**: CI зелёный (commit `b9f6d73`, run https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37223875825 — 307 unit-тестов, unsigned .app, отдельная сборка Share Extension, IPA `katana-connector-unsigned-ipa`). `done` — только после одной итоговой проверки на реальном iPhone и Katana (Release checklist v0.3) и реализации серверного контракта Katana.
@@ -378,4 +379,12 @@ Release **v0.1.0** опубликован 2026-10-04: tag `v0.1.0` → merge com
   - [x] Тесты `NFCBridgeTests`: страница ведёт ровно на существующую ссылку, без внешних ресурсов; HTTPS-адрес и лишние параметры Connector не исполняет; preview и подтверждение; событие без названия/UID/NDEF; offline → relaunch → ровно одно событие.
   - [ ] Katana: маршрут `GET /c/nfc/{action_id}`, HTTPS-адрес и QR в Devices, деплой.
   - [ ] Первый E2E на iPhone: «Коту воду заменили».
+
+## V3-009 Opt-in «Выполнять сразу после открытия» (D-055)
+- **Статус:** in progress
+- **Acceptance criteria:**
+  - [x] Локальный флаг на регистрацию, по умолчанию `false`; старые `nfc-actions.json` читаются как `false`.
+  - [x] Внешняя ссылка + enabled + не истекло + флаг → ровно одно `nfc.action.completed` через очередь; unknown/disabled/expired не выполняются.
+  - [x] Wire contract не изменён, флаг не уходит в Katana; включение только в UI с предупреждением.
+  - [ ] Зелёный CI.
 

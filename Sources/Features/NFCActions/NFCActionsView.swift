@@ -8,6 +8,7 @@ struct NFCActionsView: View {
     @State private var actionToRemove: NFCActionRegistration?
     @State private var actionToWrite: NFCActionRegistration?
     @State private var copiedActionID: UUID?
+    @State private var actionToAutoExecute: NFCActionRegistration?
 
     var body: some View {
         List {
@@ -53,6 +54,14 @@ struct NFCActionsView: View {
         } message: { _ in
             Text("Метки и команды с этой ссылкой перестанут работать на этом iPhone.")
         }
+        .confirmationDialog("Выполнять без подтверждения?",
+                            isPresented: Binding(get: { actionToAutoExecute != nil }, set: { if !$0 { actionToAutoExecute = nil } }),
+                            titleVisibility: .visible, presenting: actionToAutoExecute) { registration in
+            Button("Включить") { nfc.setAutoExecute(true, actionID: registration.actionID) }
+            Button("Отмена", role: .cancel) {}
+        } message: { registration in
+            Text("Касание метки или открытие ссылки «\(registration.label)» сразу выполнит действие на этом iPhone, без кнопки «Выполнить». Сработает у любого, у кого есть эта метка или ссылка. Настройка хранится только на iPhone.")
+        }
         .confirmationDialog("Записать ссылку на метку?",
                             isPresented: Binding(get: { actionToWrite != nil }, set: { if !$0 { actionToWrite = nil } }),
                             titleVisibility: .visible, presenting: actionToWrite) { registration in
@@ -70,6 +79,15 @@ struct NFCActionsView: View {
             Text(status(registration)).font(.caption).foregroundStyle(.secondary)
             Toggle("Включено", isOn: Binding(get: { registration.enabled },
                                              set: { nfc.setEnabled($0, actionID: registration.actionID) }))
+                .font(.footnote)
+            // Turning it on asks first; turning it off is immediate.
+            Toggle("Выполнять сразу после открытия", isOn: Binding(get: { registration.autoExecute }, set: { value in
+                if value {
+                    actionToAutoExecute = registration
+                } else {
+                    nfc.setAutoExecute(false, actionID: registration.actionID)
+                }
+            }))
                 .font(.footnote)
             Button(copiedActionID == registration.actionID ? "Ссылка скопирована" : "Скопировать ссылку для Команд") {
                 UIPasteboard.general.url = nfc.shortcutLink(for: registration.actionID)
@@ -140,6 +158,11 @@ struct NFCActionPreviewView: View {
                 Section {
                     Label(execution.result == .confirmed ? "Выполнено" : "Отклонено",
                           systemImage: execution.result == .confirmed ? "checkmark.circle" : "xmark.circle")
+                    if execution.autoExecuted {
+                        Text("Выполнено сразу после открытия — так настроено для этого действия. Отключить можно в «NFC-действия».")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     EventDeliveryStatusLabel(eventID: execution.eventID)
                 }
             case .unknown?:
@@ -154,7 +177,7 @@ struct NFCActionPreviewView: View {
         }
         .navigationTitle("NFC-действие")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { nfc.open(actionID: actionID, source: source) }
+        .task { await nfc.openFromLink(actionID: actionID, source: source) }
     }
 }
 

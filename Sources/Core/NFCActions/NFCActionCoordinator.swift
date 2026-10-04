@@ -117,6 +117,14 @@ final class NFCActionCoordinator: ObservableObject, ActionDraftHandler {
     }
 
     /// Local removal (after the user confirmed). Katana keeps its own registry.
+    /// Local opt-in «Выполнять сразу после открытия» (D-055). Only from Connector's own UI —
+    /// no link, draft or server can change it — and it is never sent to Katana.
+    func setAutoExecute(_ autoExecute: Bool, actionID: UUID) {
+        guard let index = registrations.firstIndex(where: { $0.actionID == actionID }) else { return }
+        registrations[index].autoExecute = autoExecute
+        persist()
+    }
+
     func remove(actionID: UUID) {
         registrations.removeAll { $0.actionID == actionID }
         pending.removeAll { $0.actionID == actionID }
@@ -142,6 +150,14 @@ final class NFCActionCoordinator: ObservableObject, ActionDraftHandler {
             previews[actionID] = .expired
             return
         }
+        // With auto-execute, a repeat of the same trigger within the window shows the run that
+        // already happened instead of running the action again.
+        if registration.autoExecute, !pending.contains(where: { $0.actionID == actionID }),
+           let last = executions.first(where: { $0.actionID == actionID }), let openedAt = last.openedAt,
+           date.timeIntervalSince(openedAt) <= NFCPendingExecution.reuseWindow {
+            previews[actionID] = .done(last)
+            return
+        }
         if let existing = pending.first(where: { $0.actionID == actionID }),
            date.timeIntervalSince(existing.openedAt) <= NFCPendingExecution.reuseWindow || existing.restored {
             previews[actionID] = .ready(existing)
@@ -154,15 +170,30 @@ final class NFCActionCoordinator: ObservableObject, ActionDraftHandler {
         previews[actionID] = .ready(run)
     }
 
+    /// An external NFC link (Shortcuts or the HTTPS bridge, D-054) opened the preview. Runs the
+    /// action at once only if the user enabled auto-execute for this registration and it is
+    /// enabled and not expired (D-055); otherwise exactly like `open` — preview, no event.
+    func openFromLink(actionID: UUID, source: NFCActionSource) async {
+        open(actionID: actionID, source: source)
+        guard case .ready? = previews[actionID], let registration = registration(for: actionID),
+              registration.autoExecute else { return }
+        await decide(actionID: actionID, result: .confirmed, automatically: true)
+    }
+
     /// «Выполнить» / «Отклонить». One event per run, also on double taps.
     func decide(actionID: UUID, result: NFCActionResult) async {
+        await decide(actionID: actionID, result: result, automatically: false)
+    }
+
+    private func decide(actionID: UUID, result: NFCActionResult, automatically: Bool) async {
         guard case .ready(let run)? = previews[actionID], !deciding.contains(run.executionID),
               let registration = registration(for: actionID), registration.enabled, !registration.isExpired(at: now()) else { return }
         deciding.insert(run.executionID)
         defer { deciding.remove(run.executionID) }
         let execution = NFCCompletedExecution(executionID: run.executionID, actionID: actionID, eventID: UUID(),
                                               source: run.source, confirmedAt: WholeSeconds.floor(now()), result: result,
-                                              interrupted: run.restored, eventSaved: false)
+                                              interrupted: run.restored, eventSaved: false,
+                                              openedAt: run.openedAt, autoExecuted: automatically)
         pending.removeAll { $0.executionID == run.executionID }
         executions.insert(execution, at: 0)
         if executions.count > NFCActionsFile.maxExecutions {

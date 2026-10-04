@@ -670,7 +670,7 @@ katana-connector://open?v=3&feature=nfc_action&action_id=<uuid>
 | `action_draft.accepted.kind` | `nfc_action`, `geofence_create`, `shared_capture` |
 | `result_ref` | UUID результата: `action_id` (nfc_action), `geofence_id` (geofence_create), `capture_id` (shared_capture) |
 | `nfc.action.completed.source` | `shortcut` (внешняя ссылка: Команды или HTTPS-мост с метки, D-054), `core_nfc` |
-| `nfc.action.completed.result` | `confirmed` («Выполнить»), `declined` («Отклонить») |
+| `nfc.action.completed.result` | `confirmed` («Выполнить» или локальный opt-in «Выполнять сразу после открытия», D-055 — сервер их не различает), `declined` («Отклонить») |
 | `interrupted` (nfc) | `true`, если ожидающий запуск был восстановлен после перезапуска приложения |
 | `geofence.created.latitude/longitude` | числа, округлены до ≤ 4 знаков |
 | `radius_m` | `100`, `200`, `500`, `1000` |

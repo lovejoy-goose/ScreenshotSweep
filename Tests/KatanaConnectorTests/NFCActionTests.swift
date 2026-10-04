@@ -305,7 +305,8 @@ final class NFCActionTests: XCTestCase {
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
         XCTAssertEqual(Set(json.keys), ["version", "registrations", "pending", "executions"])
         let registration = try XCTUnwrap((json["registrations"] as? [[String: Any]])?.first)
-        XCTAssertEqual(Set(registration.keys), ["action_id", "label", "created_at", "expires_at", "enabled", "source_draft_id"])
+        XCTAssertEqual(Set(registration.keys), ["action_id", "label", "created_at", "expires_at", "enabled", "source_draft_id",
+                                                "auto_execute"], "auto_execute is local only (D-055)")
         let texts = [String(decoding: try Data(contentsOf: url), as: UTF8.self)] + (try sink.events.map(ContextFixtures.text))
         for text in texts {
             for forbidden in ["uid", "ndef", "katana-connector://", "serial", "identifier\"", "token"] {
