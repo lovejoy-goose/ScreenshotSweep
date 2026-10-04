@@ -27,9 +27,9 @@ Release **v0.1.0** опубликован 2026-10-04: tag `v0.1.0` → merge com
 | V2-003 | Activity Journal | **done** | V2-002 |
 | V2-004 | Location Check-in | **done** | V2-002 |
 | V2-005 | Local reminders from Katana drafts | **done** | V2-002 |
-| V2-006 | Integration / regression / release validation | **in review** (ждёт итоговой проверки на iPhone) | V2-003 … V2-005 |
+| V2-006 | Integration / regression / release validation | **done** (E2E на iPhone и Katana пройден; 2 post-merge проверки открыты) | V2-003 … V2-005 |
 
-Весь milestone v0.2 — **in review**: код и CI зелёные (commit `be50195`, run https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37162181503, 244 unit-теста, IPA `katana-connector-unsigned-ipa`); `done` — только после одной итоговой проверки на реальном iPhone и Katana (`TESTING.md`, Release checklist v0.2).
+Весь milestone v0.2 — **done** (слит в `main` 2026-10-04, merge `43b4ca8`, post-merge CI run https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37219737432); открытые post-merge проверки: баннер напоминания и `reminder.local.cancelled` (Release checklist v0.3, L). Ранее — код и CI зелёные (commit `be50195`, run https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37162181503, 244 unit-теста, IPA `katana-connector-unsigned-ipa`); `done` — только после одной итоговой проверки на реальном iPhone и Katana (`TESTING.md`, Release checklist v0.2).
 
 ---
 
@@ -299,16 +299,63 @@ Release **v0.1.0** опубликован 2026-10-04: tag `v0.1.0` → merge com
 
 ## V2-006 Integration / regression / release validation
 
-- **Статус:** in review — ждёт итоговой ручной проверки
+- **Статус:** done — основной E2E на iPhone и Katana пройден (подтверждено пользователем 2026-10-04); post-merge: баннер напоминания и `reminder.local.cancelled`
 - **Scope:** Dashboard «Функции», App-композиция и lifecycle, Info.plist-тексты, версия 0.2.0, сквозные тесты v0.2 (privacy request-body audit, scope, revoke/repair, стабильность идентификаторов), README/ARCHITECTURE/TESTING, единый ручной checklist v0.2.
 - **Acceptance criteria:**
   - [x] Все тесты v0.1 зелёные; v1 ссылки, Screenshot Cleanup, Capability Lab не сломаны.
   - [x] Info.plist без Always/background modes; без entitlements; Core без hardware-фреймворков.
   - [x] Зелёный CI, финальный IPA: `be50195`, run https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37162181503 (244 unit-теста).
-  - [ ] Итоговая ручная проверка на реальном iPhone и Katana (после неё весь v0.2 → done).
+  - [x] Итоговая ручная проверка на реальном iPhone и Katana — основной E2E пройден (подтверждено пользователем); открыты post-merge: фактический показ баннера и `reminder.local.cancelled`.
 
 ### Заметки v0.2
 
 - **Найденные и исправленные дефекты:** (1) `NSDecimalNumber.doubleValue` неточен (55.76 → 55.760000000000005) — все check-in отклонялись проверкой payload; исправлено в `fix: round check-in coordinates exactly` (обнаружено тестами, run https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37161269327). (2) Нестабильный тест v0.1 `testCapabilityReportBodyIsClean`: отложенный capability report предыдущего теста попадал в общий mock — тест выбирает свой запрос (`test: isolate capability report audit…`, run https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37161479330). (3) Ожидание теста: `{…}` в `draft_id` отклоняется ещё до проверки UUID (недопустимые символы URL) — тест уточнён (run https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37161821500).
 - **Вне scope (не делалось):** реальный foreground-показ уведомлений (без `UNUserNotificationCenterDelegate` iOS не показывает баннер, пока приложение открыто — честно сказано в checklist); серверная реализация Katana (контракт — `API.md`); ручная обработка событий чужих scope (Q-9).
+
+---
+
+# Milestone v0.3 — Physical Triggers & Capture
+
+Один Draft PR `Katana Connector v0.3 — Physical Triggers & Capture` из ветки `feature/katana-connector-v0.3-physical-triggers-capture` (D-045). Промежуточные IPA не устанавливаются; ручная проверка одна (`TESTING.md`, Release checklist v0.3).
+
+| ID | Задача | Статус |
+|---|---|---|
+| V3-001 | Spike, decisions, API contract | in progress |
+| V3-002 | Action Draft infrastructure + URL v3 | planned |
+| V3-003 | NFC actions (Shortcuts + Core NFC за capability) | planned |
+| V3-004 | Local geofences | planned |
+| V3-005 | Capture: in-app + Share Extension target | planned |
+| V3-006 | Capability Lab, Dashboard, integration/regression | planned |
+| V3-007 | CI status, docs | planned |
+
+## V3-001 Spike, decisions, API contract
+- **Статус:** in progress
+- **Acceptance criteria:**
+  - [x] Результаты spike (Core NFC, Share Extension/App Group, region monitoring/Always/background) и изоляция entitlements — D-046.
+  - [x] Решения D-045…D-053; контракт маршрутов 8–9, ссылок v3, семи событий, capability ID — `API.md`.
+  - [ ] Зелёный CI.
+
+## V3-002 Action Draft infrastructure + URL v3
+- **Статус:** planned
+- **Acceptance criteria:** строгий парсер v3; `GET action-drafts` со строгой схемой, TTL по `server_time`, typed errors, redirect/size; локальная защита от повторного выполнения; `action_draft.accepted`; ссылка только открывает экран.
+
+## V3-003 NFC actions
+- **Статус:** planned
+- **Acceptance criteria:** регистрация из черновика; preview/«Выполнить»/«Отклонить»; disabled/expired/unknown; дубль касания; восстановление ожидающего запуска (`interrupted`); `nfc.action.completed`; Core NFC за `requires_entitlement`; нет UID/NDEF в событиях и файлах; настройка Shortcuts в документации и UI.
+
+## V3-004 Local geofences
+- **Статус:** planned
+- **Acceptance criteria:** When In Use → preview → подтверждение → Always только тут; округление 4 знака; лимит 20; включение/выключение/удаление; сверка с системой; enter/exit без координат, дедупликация, сохранение до enqueue; offline/relaunch; `geofence.created/transitioned/removed`.
+
+## V3-005 Capture
+- **Статус:** planned
+- **Acceptance criteria:** пять видов, allowlist и сигнатуры, лимиты, имена и path traversal, очистка метаданных изображений, inbox (TTL, лимиты, quarantine, восстановление), preview/подтверждение/отмена, `PUT captures`, события без содержимого, удаление временных файлов; Share Extension target собирается в CI и не встроен.
+
+## V3-006 Capability Lab, Dashboard, integration/regression
+- **Статус:** planned
+- **Acceptance criteria:** новые capability ID и два probe (Always, region monitoring) только по кнопке; Dashboard; сквозные тесты v0.3 (privacy byte audit, exact-once, 401/re-pair, scope, идентификаторы v0.1/v0.2/v0.3, Info.plist, entitlements, фреймворки, упаковка); все тесты v0.1/v0.2 зелёные.
+
+## V3-007 CI status, docs
+- **Статус:** planned
+- **Acceptance criteria:** README, ARCHITECTURE, TESTING (Release checklist v0.3 A–L), статусы и ссылки CI. Ручные пункты не отмечаются без проверки пользователя.
 
