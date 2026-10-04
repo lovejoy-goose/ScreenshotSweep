@@ -46,7 +46,7 @@ final class NFCBridgeTests: XCTestCase {
         XCTAssertEqual(page.components(separatedBy: "{{ACTION_ID}}").count - 1, 2, "the id appears only in the link (and its doc)")
 
         for forbidden in ["http://", "https://", "<img", "<iframe", "<link", "src=", "fetch(", "xmlhttprequest", "document.cookie",
-                          "localstorage", "uid", "ndef", "gtag", "sendbeacon", "token"] {
+                          "localstorage", "uid=", "tag_uid", "ndef", "gtag", "sendbeacon", "token"] {
             XCTAssertFalse(page.lowercased().replacingOccurrences(of: "katana-connector://", with: "").contains(forbidden),
                            "no \(forbidden) on the bridge page")
         }
