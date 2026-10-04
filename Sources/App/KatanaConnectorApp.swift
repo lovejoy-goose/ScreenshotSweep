@@ -20,6 +20,8 @@ struct KatanaConnectorApp: App {
     @StateObject private var reminders: ReminderCoordinator
     // Action drafts are loaded and performed only by buttons on the draft screen (v0.3).
     @StateObject private var actionDrafts: ActionDraftCoordinator
+    // Triggers only open a preview; native Core NFC stays off without its entitlement (D-046).
+    @StateObject private var nfcActions: NFCActionCoordinator
     private let capabilityRegistry: CapabilityRegistry
 
     init() {
@@ -54,6 +56,8 @@ struct KatanaConnectorApp: App {
                                                       notifications: SystemReminderNotifications(), sink: delivery)
         let actionDraftCoordinator = ActionDraftCoordinator(store: ActionDraftStoreFile.applicationSupportStore(),
                                                             fetcher: apiClient, sink: delivery)
+        let nfc = NFCActionCoordinator(store: NFCActionsFile.applicationSupportStore(), tags: SystemNFCTagAccess(), sink: delivery)
+        actionDraftCoordinator.register(nfc, for: .nfcAction)
 
         capabilityRegistry = registry
         _sweepStore = StateObject(wrappedValue: SweepStore(session: session))
@@ -65,6 +69,7 @@ struct KatanaConnectorApp: App {
         _locationCheckIn = StateObject(wrappedValue: checkIn)
         _reminders = StateObject(wrappedValue: reminderCoordinator)
         _actionDrafts = StateObject(wrappedValue: actionDraftCoordinator)
+        _nfcActions = StateObject(wrappedValue: nfc)
     }
 
     var body: some Scene {
@@ -79,6 +84,7 @@ struct KatanaConnectorApp: App {
                 .environmentObject(locationCheckIn)
                 .environmentObject(reminders)
                 .environmentObject(actionDrafts)
+                .environmentObject(nfcActions)
                 .task {
                     // Status read only: no prompts, no probes.
                     await capabilityLab.refreshAuthorizations()
@@ -95,6 +101,7 @@ struct KatanaConnectorApp: App {
                 // Events of reminders that could not be queued earlier, with their original IDs.
                 Task { await reminders.retryPendingEvents() }
                 Task { await actionDrafts.retryPendingEvents() }
+                Task { await nfcActions.retryPendingEvents() }
             case .background:
                 // iOS does not let the app observe in the background; the session says so honestly.
                 Task { await activityJournal.appDidEnterBackground() }

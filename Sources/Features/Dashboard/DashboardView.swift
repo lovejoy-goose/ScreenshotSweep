@@ -67,6 +67,12 @@ struct DashboardView: View {
                 }
             }
 
+            Section("Физические триггеры") {
+                NavigationLink(value: AppRoute.nfcActions) {
+                    Label("NFC-действия", systemImage: "wave.3.right")
+                }
+            }
+
             Section("Возможности устройства") {
                 ForEach(Self.highlighted, id: \.self) { id in
                     LabeledContent(registry.descriptor(for: id).title,

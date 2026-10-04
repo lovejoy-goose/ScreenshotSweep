@@ -13,6 +13,9 @@ enum AppRoute: Hashable, Sendable {
     case reminderDraft(UUID)
     /// Screen of one Katana action draft (v0.3). Opening it loads nothing by itself (D-047).
     case actionDraft(UUID)
+    case nfcActions
+    /// Preview of one registered NFC action opened by a Shortcuts link (v0.3). Runs nothing by itself.
+    case nfcActionPreview(UUID)
 }
 
 /// Features a `katana-connector://open` link may open. Wire values are part of URL v1.
@@ -36,6 +39,8 @@ enum ConnectorURLDestination: Equatable, Sendable {
     case reminderDraft(UUID)
     /// URL v3: `feature=action&draft_id=<uuid>`.
     case actionDraft(UUID)
+    /// URL v3: `feature=nfc_action&action_id=<uuid>`.
+    case nfcAction(UUID)
 
     /// Wire values of `feature` in URL v2.
     static let featureValues = ["activity_journal", "location_check_in", "reminder"]
@@ -46,6 +51,7 @@ enum ConnectorURLDestination: Equatable, Sendable {
         case .locationCheckIn: return "location_check_in"
         case .reminderDraft: return "reminder"
         case .actionDraft: return "action"
+        case .nfcAction: return "nfc_action"
         }
     }
 
@@ -53,7 +59,7 @@ enum ConnectorURLDestination: Equatable, Sendable {
     var version: String {
         switch self {
         case .activityJournal, .locationCheckIn, .reminderDraft: return ConnectorURLRouter.version2
-        case .actionDraft: return ConnectorURLRouter.version3
+        case .actionDraft, .nfcAction: return ConnectorURLRouter.version3
         }
     }
 
@@ -64,6 +70,7 @@ enum ConnectorURLDestination: Equatable, Sendable {
         case .locationCheckIn: return [.locationCheckIn]
         case .reminderDraft(let id): return [.reminders, .reminderDraft(id)]
         case .actionDraft(let id): return [.actionDraft(id)]
+        case .nfcAction(let id): return [.nfcActions, .nfcActionPreview(id)]
         }
     }
 }
@@ -97,6 +104,10 @@ enum ConnectorURLError: Error, Equatable, Sendable {
     case missingDraftID
     /// `draft_id` is not a canonical UUID, or appears where it is not allowed.
     case invalidDraftID
+    /// v3 NFC action link without `action_id`.
+    case missingActionID
+    /// `action_id` is not a canonical UUID.
+    case invalidActionID
 }
 
 /// Strict parser for URL scheme v1 (`katana-connector://open?v=1&feature=screenshot_cleanup|pairing`)
@@ -121,6 +132,7 @@ enum ConnectorURLRouter {
         var text = "\(scheme)://\(host)?v=\(destination.version)&feature=\(destination.featureValue)"
         switch destination {
         case .reminderDraft(let id), .actionDraft(let id): text += "&draft_id=\(id.uuidString.lowercased())"
+        case .nfcAction(let id): text += "&action_id=\(id.uuidString.lowercased())"
         case .activityJournal, .locationCheckIn: break
         }
         return URL(string: text)!
@@ -202,6 +214,11 @@ enum ConnectorURLRouter {
             guard let draftValue = parameters["draft_id"] else { throw ConnectorURLError.missingDraftID }
             guard let id = canonicalUUID(draftValue) else { throw ConnectorURLError.invalidDraftID }
             return .actionDraft(id)
+        case "nfc_action":
+            guard parameters["draft_id"] == nil else { throw ConnectorURLError.unknownParameter }
+            guard let actionValue = parameters["action_id"] else { throw ConnectorURLError.missingActionID }
+            guard let id = canonicalUUID(actionValue) else { throw ConnectorURLError.invalidActionID }
+            return .nfcAction(id)
         default:
             // Features of earlier versions exist, but not in this version.
             if ConnectorURLFeature(rawValue: featureValue) != nil || ConnectorURLDestination.featureValues.contains(featureValue) {
