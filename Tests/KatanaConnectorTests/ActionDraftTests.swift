@@ -364,7 +364,9 @@ final class ActionDraftTests: XCTestCase {
         let sink = RecordingEventSink()
         sink.outcome = .notPaired
         let coordinator = makeCoordinator(fetcher: fetcher, sink: sink)
-        coordinator.register(MockActionDraftHandler(result: .completed(resultRef: ActionDraftFixtures.actionID)), for: .nfcAction)
+        // Handlers are held weakly (the app owns the features): keep this one alive.
+        let handler = MockActionDraftHandler(result: .completed(resultRef: ActionDraftFixtures.actionID))
+        coordinator.register(handler, for: .nfcAction)
         await coordinator.loadDraft(ActionDraftFixtures.draftID)
         await coordinator.perform(ActionDraftFixtures.draftID)
         let eventID = try XCTUnwrap(coordinator.acceptedRecord(for: ActionDraftFixtures.draftID)?.eventID)
