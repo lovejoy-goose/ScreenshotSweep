@@ -339,6 +339,25 @@ Accept: application/json
 
 `object_ref` — непрозрачная ссылка `[A-Za-z0-9_-]{1,64}`, без содержимого и без URL. Идемпотентность: повтор того же `capture_id` с тем же SHA-256 → тот же `object_ref`; с другим SHA-256 → `409`. Ошибки: 401 → `requires_repair`; 409 → конфликт (захват отмечается неудачным, без повторов); 413/415/422 → отклонено, без повторов; 408/сеть/429/5xx → повтор при следующем запуске/«Синхронизировать»; 3xx/прочее → `invalidResponse`. Сервер хранит объект в истории без раскрытия содержимого в событиях и логах.
 
+### 10. NFC HTTPS bridge (v0.3, D-054)
+
+```
+GET https://<katana-host>/c/nfc/{action_id}
+```
+
+Публичная страница для постоянных NFC-меток. Без авторизации, без cookies, без редиректов на другие хосты, без побочных эффектов: GET ничего не выполняет, не меняет и не создаёт событий.
+
+| Правило | Значение |
+|---|---|
+| `{action_id}` | канонический UUID в нижнем регистре; иначе `404` с пустым телом |
+| Ответ | `200 text/html; charset=utf-8`, одинаковый для любого корректного UUID (не раскрывает существование и название действия) |
+| Заголовки | `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, `X-Robots-Tag: noindex, nofollow`, `Content-Security-Policy: default-src 'none'; script-src 'sha256-…'; style-src 'unsafe-inline'`, `X-Content-Type-Options: nosniff` |
+| Содержимое | кнопка «Открыть в Katana Connector» со ссылкой `katana-connector://open?v=3&feature=nfc_action&action_id={action_id}` и встроенный скрипт, который переходит по ней сразу; никаких внешних ресурсов, аналитики и параметров кроме `action_id` |
+| Логи | путь логируется как `/c/nfc/:id`; `action_id`, User-Agent и IP моста в аналитику не попадают |
+| Метка | единственная NDEF URI-запись с этим HTTPS-адресом; без UID, текста, токенов; метка не блокируется |
+
+Эталонная страница — `docs/nfc-bridge-reference.html`; запись метки — `docs/NFC_TAG_SETUP.md`.
+
 ## Custom URL scheme v1 (PWA → Connector, KC-007)
 
 Katana PWA может открыть экран Connector ссылкой. Это **только навигация**: в сеть ничего не уходит, данные и credentials не передаются.
@@ -650,7 +669,7 @@ katana-connector://open?v=3&feature=nfc_action&action_id=<uuid>
 |---|---|
 | `action_draft.accepted.kind` | `nfc_action`, `geofence_create`, `shared_capture` |
 | `result_ref` | UUID результата: `action_id` (nfc_action), `geofence_id` (geofence_create), `capture_id` (shared_capture) |
-| `nfc.action.completed.source` | `shortcut`, `core_nfc` |
+| `nfc.action.completed.source` | `shortcut` (внешняя ссылка: Команды или HTTPS-мост с метки, D-054), `core_nfc` |
 | `nfc.action.completed.result` | `confirmed` («Выполнить»), `declined` («Отклонить») |
 | `interrupted` (nfc) | `true`, если ожидающий запуск был восстановлен после перезапуска приложения |
 | `geofence.created.latitude/longitude` | числа, округлены до ≤ 4 знаков |
@@ -690,4 +709,5 @@ katana-connector://open?v=3&feature=nfc_action&action_id=<uuid>
 4. **Capture upload lifecycle:** `PUT /api/connector/captures/{capture_id}` (allowlist типов, лимиты, проверка SHA-256 и сигнатуры, идемпотентность, 409 при другом хеше), хранение объекта, `object_ref`; `share.capture.created`/`cancelled` без содержимого; серверная история без утечки содержимого в события и логи; объекты без подтверждающего события через 24 ч можно удалять.
 5. **Capability report:** принимать новые `id` и `detail` без отказа всего отчёта.
 6. **Ссылки:** кнопки/QR Katana для `…v=3&feature=action&draft_id=<uuid>`; для NFC — показ ссылки `…v=3&feature=nfc_action&action_id=<uuid>` для Shortcuts.
+7. **NFC HTTPS bridge (маршрут 10, D-054):** `GET /c/nfc/{action_id}` по `docs/nfc-bridge-reference.html`; в Katana Devices у каждого `nfc_action` — HTTPS-адрес и QR для записи через NFC Tools.
 

@@ -391,6 +391,18 @@
 - **Статус:** accepted (V3-001); уточняет D-024
 - **Решение:** Core остаётся без UIKit/SwiftUI/Photos/AVFoundation/CoreLocation/CoreMotion/UserNotifications/CoreNFC. Исключения: `Core/Capture` может использовать `ImageIO`, `CoreGraphics` (очистка метаданных изображений) и `CryptoKit` (SHA-256). CoreNFC — только `Features/NFCActions`; CoreLocation для геозон и Always-probe — только `Features/Geofences/SystemGeofenceAccess.swift` (единственный файл с `requestAlwaysAuthorization` и регистрацией регионов). Share Extension использует только Core/Capture и UIKit/SwiftUI.
 
+## D-054 HTTPS-мост для постоянных NFC-меток
+
+- **Статус:** accepted (V3-008); дополняет D-048; Universal Links и Associated Domains по-прежнему не используются
+- **Контекст:** NFC-наклейки ISO 14443-4 / Type A / IsoDep читаются iPhone (NFC Tools), но автоматизация Команд по UID таких меток не запускается. Фоновое чтение NFC в iOS открывает `https`-ссылки из NDEF URI-записи, а произвольные custom scheme — нет.
+- **Решение:**
+  - На метку записывается только `https://<katana-host>/c/nfc/<action_id>` — одна NDEF URI-запись, `action_id` — тот же непрозрачный UUID NFC-действия. Ни UID, ни текста действия, ни токенов на метке нет.
+  - Katana отдаёт по этому адресу **публичную статическую страницу-мост** (без входа, cookies и побочных эффектов), которая только переводит в уже существующую ссылку `katana-connector://open?v=3&feature=nfc_action&action_id=<uuid>`. GET ничего не выполняет и не создаёт событий; одинаковая страница для любого корректного UUID (не раскрывает, существует ли действие и его название); некорректный UUID → `404`.
+  - Новой сборки не нужно: Connector уже обрабатывает ссылку v3 — preview, «Выполнить»/«Отклонить», `nfc.action.completed`, exact-once и offline-очередь (D-048). Universal Link entitlement не запрашивается.
+  - `source` события — `shortcut`: значение означает «запуск внешней ссылкой» (Команды или HTTPS-мост с метки); Connector их не различает и не узнаёт ничего о метке. Новых wire values нет.
+  - Сервер не получает UID метки (Safari его не передаёт); `action_id` из пути не попадает в аналитику и телеметрию; в access-логах путь моста маскируется до `/c/nfc/:id`.
+  - Katana Devices после создания `nfc_action` показывает HTTPS-адрес и QR с ним (для записи через NFC Tools), никогда — ссылку с UID или текстом.
+
 ---
 
 ## Открытые вопросы

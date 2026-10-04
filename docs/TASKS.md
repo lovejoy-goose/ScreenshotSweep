@@ -327,6 +327,7 @@ Release **v0.1.0** опубликован 2026-10-04: tag `v0.1.0` → merge com
 | V3-005 | Capture: in-app + Share Extension target | **done** |
 | V3-006 | Capability Lab, Dashboard, integration/regression | **done** |
 | V3-007 | CI status, docs | **in review** |
+| V3-008 | HTTPS-мост для постоянных NFC-меток (D-054) | in progress (клиент и контракт готовы; сервер Katana — ждёт доступа к репозиторию) |
 
 Весь milestone v0.3 — **in review**: CI зелёный (commit `b9f6d73`, run https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37223875825 — 307 unit-тестов, unsigned .app, отдельная сборка Share Extension, IPA `katana-connector-unsigned-ipa`). `done` — только после одной итоговой проверки на реальном iPhone и Katana (Release checklist v0.3) и реализации серверного контракта Katana.
 
@@ -367,4 +368,14 @@ Release **v0.1.0** опубликован 2026-10-04: tag `v0.1.0` → merge com
 - **Найденные и исправленные дефекты:** (1) тест повтора `action_draft.accepted` создавал обработчик inline, а координатор держит обработчики слабо — объект освобождался (исправлен тест; поведение слабой ссылки задокументировано); (2) ожидание теста: URL длиннее 2048 байт отсекается лимитом размера (`tooLarge`) раньше разбора; (3) найдено при проектировании: `completeDeferred` требовал черновик в памяти — после перезапуска `shared_capture` не помечался бы выполненным; теперь достаточно `draft_id` и вида; (4) протокольный метод `requestAlwaysAuthorization()` в Core нарушал правило «Always только в адаптере» — переименован в `requestAlwaysPermission()`.
 - **Изолировано из-за entitlement (D-046):** Core NFC чтение/запись (`requires_entitlement`), App Group и встроенный Share Extension. Работают: Shortcuts + NFC, геозоны (Always без entitlement), «Поделиться с Katana» в приложении.
 - **Ручные пункты Release checklist v0.3 не отмечены** — только после проверки пользователем.
+
+## V3-008 HTTPS-мост для постоянных NFC-меток (D-054)
+- **Статус:** in progress — клиентская часть, контракт, эталонная страница и инструкция готовы; серверная реализация и деплой Katana не выполнены (нет доступа к серверному репозиторию).
+- **Цель:** наклейки ISO 14443-4 / Type A / IsoDep, которые Команды не запускают по UID: на метке HTTPS-адрес `https://<katana-host>/c/nfc/<action_id>` → страница-мост → существующая ссылка v3 `nfc_action` → preview → «Выполнить».
+- **Acceptance criteria:**
+  - [x] Решение D-054 (без Universal Links, без новой IPA, без новых wire values).
+  - [x] Контракт маршрута 10 (`API.md`), эталонная страница `docs/nfc-bridge-reference.html` (CSP с хешем скрипта), инструкция `docs/NFC_TAG_SETUP.md`.
+  - [x] Тесты `NFCBridgeTests`: страница ведёт ровно на существующую ссылку, без внешних ресурсов; HTTPS-адрес и лишние параметры Connector не исполняет; preview и подтверждение; событие без названия/UID/NDEF; offline → relaunch → ровно одно событие.
+  - [ ] Katana: маршрут `GET /c/nfc/{action_id}`, HTTPS-адрес и QR в Devices, деплой.
+  - [ ] Первый E2E на iPhone: «Коту воду заменили».
 

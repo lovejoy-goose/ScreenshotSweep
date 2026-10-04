@@ -1,0 +1,32 @@
+<!doctype html>
+<!--
+  Katana NFC HTTPS bridge (D-054, API.md route 10). Reference for the Katana server.
+  Served at GET /c/nfc/{action_id} for any canonical lowercase UUID; {{ACTION_ID}} is replaced by it.
+  Headers: Cache-Control: no-store; Referrer-Policy: no-referrer; X-Robots-Tag: noindex, nofollow;
+           X-Content-Type-Options: nosniff;
+           Content-Security-Policy: default-src 'none'; script-src 'sha256-aZmTfwt3xsjcu10UfYh5ovu7s8C5p6ss8aX6IV0dnB4='; style-src 'unsafe-inline'
+  No auth, no cookies, no analytics, no external resources. GET performs nothing: Connector shows a
+  preview and runs the action only after «Выполнить».
+-->
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<title>Katana Connector</title>
+<style>
+  body { font: 17px -apple-system, system-ui, sans-serif; margin: 0; padding: 32px 20px; text-align: center; color: #111; background: #fff; }
+  a.button { display: inline-block; margin-top: 20px; padding: 14px 22px; border-radius: 12px; background: #111; color: #fff; text-decoration: none; }
+  p { color: #555; }
+  @media (prefers-color-scheme: dark) { body { background: #000; color: #eee; } a.button { background: #eee; color: #000; } p { color: #aaa; } }
+</style>
+</head>
+<body>
+<h1>Katana Connector</h1>
+<p>Откройте Connector, чтобы посмотреть действие. Без вашего подтверждения ничего не выполняется.</p>
+<a id="open" class="button" href="katana-connector://open?v=3&amp;feature=nfc_action&amp;action_id={{ACTION_ID}}">Открыть в Katana Connector</a>
+<p>Если ничего не происходит, установите Katana Connector и подключите его к Katana.</p>
+<script>var l=document.getElementById("open");if(l&&/^katana-connector:\/\/open\?v=3&feature=nfc_action&action_id=[0-9a-f-]{36}$/.test(l.href)){window.location.replace(l.href);}</script>
+</body>
+</html>
