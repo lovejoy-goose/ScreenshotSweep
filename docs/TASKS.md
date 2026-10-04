@@ -320,42 +320,51 @@ Release **v0.1.0** опубликован 2026-10-04: tag `v0.1.0` → merge com
 
 | ID | Задача | Статус |
 |---|---|---|
-| V3-001 | Spike, decisions, API contract | in progress |
-| V3-002 | Action Draft infrastructure + URL v3 | planned |
-| V3-003 | NFC actions (Shortcuts + Core NFC за capability) | planned |
-| V3-004 | Local geofences | planned |
-| V3-005 | Capture: in-app + Share Extension target | planned |
-| V3-006 | Capability Lab, Dashboard, integration/regression | planned |
-| V3-007 | CI status, docs | planned |
+| V3-001 | Spike, decisions, API contract | **done** |
+| V3-002 | Action Draft infrastructure + URL v3 | **done** |
+| V3-003 | NFC actions (Shortcuts + Core NFC за capability) | **done** |
+| V3-004 | Local geofences | **done** |
+| V3-005 | Capture: in-app + Share Extension target | **done** |
+| V3-006 | Capability Lab, Dashboard, integration/regression | **done** |
+| V3-007 | CI status, docs | **in review** |
+
+Весь milestone v0.3 — **in review**: CI зелёный (commit `b9f6d73`, run https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37223875825 — 307 unit-тестов, unsigned .app, отдельная сборка Share Extension, IPA `katana-connector-unsigned-ipa`). `done` — только после одной итоговой проверки на реальном iPhone и Katana (Release checklist v0.3) и реализации серверного контракта Katana.
 
 ## V3-001 Spike, decisions, API contract
-- **Статус:** in progress
+- **Статус:** done
 - **Acceptance criteria:**
   - [x] Результаты spike (Core NFC, Share Extension/App Group, region monitoring/Always/background) и изоляция entitlements — D-046.
   - [x] Решения D-045…D-053; контракт маршрутов 8–9, ссылок v3, семи событий, capability ID — `API.md`.
-  - [ ] Зелёный CI.
+  - [x] Зелёный CI: `d47e442`, run https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37221644612.
 
 ## V3-002 Action Draft infrastructure + URL v3
-- **Статус:** planned
+- **Статус:** done
 - **Acceptance criteria:** строгий парсер v3; `GET action-drafts` со строгой схемой, TTL по `server_time`, typed errors, redirect/size; локальная защита от повторного выполнения; `action_draft.accepted`; ссылка только открывает экран.
 
 ## V3-003 NFC actions
-- **Статус:** planned
+- **Статус:** done
 - **Acceptance criteria:** регистрация из черновика; preview/«Выполнить»/«Отклонить»; disabled/expired/unknown; дубль касания; восстановление ожидающего запуска (`interrupted`); `nfc.action.completed`; Core NFC за `requires_entitlement`; нет UID/NDEF в событиях и файлах; настройка Shortcuts в документации и UI.
 
 ## V3-004 Local geofences
-- **Статус:** planned
+- **Статус:** done
 - **Acceptance criteria:** When In Use → preview → подтверждение → Always только тут; округление 4 знака; лимит 20; включение/выключение/удаление; сверка с системой; enter/exit без координат, дедупликация, сохранение до enqueue; offline/relaunch; `geofence.created/transitioned/removed`.
 
 ## V3-005 Capture
-- **Статус:** planned
+- **Статус:** done
 - **Acceptance criteria:** пять видов, allowlist и сигнатуры, лимиты, имена и path traversal, очистка метаданных изображений, inbox (TTL, лимиты, quarantine, восстановление), preview/подтверждение/отмена, `PUT captures`, события без содержимого, удаление временных файлов; Share Extension target собирается в CI и не встроен.
 
 ## V3-006 Capability Lab, Dashboard, integration/regression
-- **Статус:** planned
+- **Статус:** done
 - **Acceptance criteria:** новые capability ID и два probe (Always, region monitoring) только по кнопке; Dashboard; сквозные тесты v0.3 (privacy byte audit, exact-once, 401/re-pair, scope, идентификаторы v0.1/v0.2/v0.3, Info.plist, entitlements, фреймворки, упаковка); все тесты v0.1/v0.2 зелёные.
 
 ## V3-007 CI status, docs
-- **Статус:** planned
+- **Статус:** in review — ждёт итоговой ручной проверки
 - **Acceptance criteria:** README, ARCHITECTURE, TESTING (Release checklist v0.3 A–L), статусы и ссылки CI. Ручные пункты не отмечаются без проверки пользователя.
+
+### Заметки v0.3
+
+- **CI по коммитам:** `d47e442` docs ✅ https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37221644612 (244); `d8d3809` action drafts ❌ https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37221912886 (дефект теста 1); `04a3488`+`3d2bb54` NFC ✅ https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37222274317 (268 тестов); `159cc93` geofences ✅ https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37222825204 (280); `c83872e` capture ❌ https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37223375461 (дефект теста 2); `1cd9cf0`+`b9f6d73` validation ✅ https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37223875825 (307).
+- **Найденные и исправленные дефекты:** (1) тест повтора `action_draft.accepted` создавал обработчик inline, а координатор держит обработчики слабо — объект освобождался (исправлен тест; поведение слабой ссылки задокументировано); (2) ожидание теста: URL длиннее 2048 байт отсекается лимитом размера (`tooLarge`) раньше разбора; (3) найдено при проектировании: `completeDeferred` требовал черновик в памяти — после перезапуска `shared_capture` не помечался бы выполненным; теперь достаточно `draft_id` и вида; (4) протокольный метод `requestAlwaysAuthorization()` в Core нарушал правило «Always только в адаптере» — переименован в `requestAlwaysPermission()`.
+- **Изолировано из-за entitlement (D-046):** Core NFC чтение/запись (`requires_entitlement`), App Group и встроенный Share Extension. Работают: Shortcuts + NFC, геозоны (Always без entitlement), «Поделиться с Katana» в приложении.
+- **Ручные пункты Release checklist v0.3 не отмечены** — только после проверки пользователем.
 

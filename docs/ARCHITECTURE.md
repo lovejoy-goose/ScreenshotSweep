@@ -1,6 +1,6 @@
 # Архитектура
 
-## Текущее состояние (v0.2 — Context & Actions)
+## Текущее состояние (v0.3 — Physical Triggers & Capture)
 
 Один application target `KatanaConnector` (Bundle ID `app.katana.connector`) и unit-test target `KatanaConnectorTests`, iOS 16+, SwiftUI, проект генерируется XcodeGen из `project.yml`. Модули — папки (D-013), границы фреймворков — D-024.
 
@@ -69,6 +69,32 @@ Sources/
 Config/KatanaConnector-Info.plist     CFBundleURLTypes (katana-connector), объединяется с генерируемым Info.plist
 Tests/KatanaConnectorTests/           XCTest без host app; mock URLProtocol/ConnectorAPI, in-memory token store, временные каталоги
 ```
+
+### Физические триггеры и захват v0.3 (D-045…D-053)
+
+```
+Sources/Core/ActionDrafts   ActionDraftModels (строгий парсер, TTL по server_time), ActionDraftCoordinator (один раз, обработчики по виду) (Combine)
+Sources/Core/NFCActions     NFCActionModels (регистрация, ожидающие запуски, CoreNFCAvailability), NFCActionCoordinator  (Combine)
+Sources/Core/Geofences      GeofenceRules (радиусы, 4 знака, лимит 20, префикс), GeofenceModels, GeofenceCoordinator     (Combine)
+Sources/Core/Capture        CaptureKind, CaptureValidation (сигнатуры, лимиты, имена, SHA-256/CryptoKit), CaptureImageSanitizer (ImageIO),
+                            CaptureInbox (manifest + payload, TTL, quarantine), CaptureEvents (upload API), CaptureCoordinator (Combine)
+Sources/Features/ActionDrafts  ActionDraftView
+Sources/Features/NFCActions    NFCActionsView, NFCActionPreviewView, SystemNFCTagAccess (CoreNFC, выключен без entitlement)
+Sources/Features/Geofences     GeofencesView, SystemGeofenceAccess (единственное место с Always и регионами; также LocationAlwaysSystem)
+Sources/Features/Capture       CaptureView (PhotosPicker, fileImporter, текст/URL)
+Sources/ShareExtension         ShareViewController — target KatanaShareExtension (не встроен в IPA v0.3)
+
+ссылка v3 → [actionDraft(id)] → «Загрузить» (GET action-drafts) → «Выполнить» → handler вида:
+   nfc_action → NFCActionCoordinator (регистрация) | geofence_create → GeofenceCoordinator (Always → регион) |
+   shared_capture → CaptureCoordinator (continuing → после загрузки completeDeferred) → action_draft.accepted
+Команды/NFC → ссылка v3 nfc_action → [nfcActions, nfcActionPreview(id)] → open (без события) → «Выполнить»/«Отклонить» → nfc.action.completed
+iOS region event (в т.ч. фоновый перезапуск) → SystemGeofenceAccess (delegate с запуска, буфер) → GeofenceCoordinator
+   → pending transition на диск → geofence.transitioned (без координат)
+Захват → CaptureValidator (+ очистка изображения) → inbox (pending_review) → preview → «Отправить» → повторная проверка
+   → PUT /captures (отдельная upload-сессия 60/180 с) → object_ref → share.capture.created → файлы удалены
+```
+
+Приложение создаёт `SystemGeofenceAccess` в `init` (delegate назначен до любой сцены) и сразу вызывает `GeofenceCoordinator.start()`; Capability Lab использует тот же адаптер для probes `location_always`/`region_monitoring`. Координаторы v0.3 регистрируются в `ActionDraftCoordinator` как слабые обработчики.
 
 ### Контекст и действия v0.2 (D-037…D-044)
 

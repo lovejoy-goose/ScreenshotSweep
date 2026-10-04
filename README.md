@@ -7,7 +7,7 @@ Katana PWA → QR pairing → credentials в Keychain → katana-connector:// с
            → persistent очередь (по подключению) → authenticated API → результат в Katana
 ```
 
-Текущий релиз — **v0.1.0** ([GitHub Release](https://github.com/lovejoy-goose/ScreenshotSweep/releases/tag/v0.1.0)). В работе — **v0.2 «Context & Actions»** (Draft PR, `docs/TASKS.md`).
+Текущий релиз — **v0.1.0** ([GitHub Release](https://github.com/lovejoy-goose/ScreenshotSweep/releases/tag/v0.1.0)); v0.2 «Context & Actions» слит в `main`. В работе — **v0.3 «Physical Triggers & Capture»** (Draft PR, `docs/TASKS.md`).
 
 ## Что добавляет v0.2 — Контекст и действия
 
@@ -26,6 +26,14 @@ Katana PWA → QR pairing → credentials в Keychain → katana-connector:// с
 - **Offline-очередь** — событие сначала записывается на iPhone, потом отправляется; переживает перезапуск и отсутствие сети; отправляется только тому подключению, для которого записано; повторная отправка использует тот же `event_id`, сервер отбрасывает дубликаты.
 - **Capability Lab** — четыре ручные проверки: камера (один кадр, сразу отброшен), текущая геолокация (только «При использовании», координаты отброшены), датчики движения (данные отброшены), локальное тестовое уведомление. Каждая — только своей кнопкой и только со своим разрешением; в Katana уходят лишь состояния и безопасные коды.
 
+## Что добавляет v0.3 — Физические триггеры и захват
+
+- **Действия из Katana** — ссылка `katana-connector://open?v=3&feature=action&draft_id=<uuid>` открывает экран; «Загрузить действие» показывает, что предлагается, «Выполнить» — делает один раз.
+- **NFC-действия** — метка через Команды (NFC → «Открыть URL» с ссылкой `…v=3&feature=nfc_action&action_id=<uuid>`) открывает preview; выполнение — только «Выполнить». UID и содержимое меток не сохраняются. Сканирование/запись меток в приложении (Core NFC) — в коде, но выключено до NFC-entitlement.
+- **Геозоны** — до 20 своих геозон: «Определить текущее место» → имя и радиус → подтверждение → «Всегда» (только тут). Katana получает вход/выход и время без координат. Фонового трекинга нет.
+- **Поделиться с Katana** — текст, ссылка, изображение (без EXIF/GPS), PDF, текстовый файл → preview → «Отправить в Katana». Системный пункт «Поделиться» (Share Extension) собран, включится после проверки App Group.
+- Capability Lab: проверки «Всегда» и геозон; NFC, App Group и Share Extension честно показаны как `requires_entitlement`.
+
 ## Граница приватности
 
 - В Katana **никогда** не уходят: фото, кадры, миниатюры, идентификаторы и имена файлов, EXIF, даты и геоданные снимков, сырые данные движения и временные ряды, высота/скорость/курс/этаж, текст системных ошибок, токены и коды подключения, текст напоминаний обратно в событиях.
@@ -39,7 +47,7 @@ Katana PWA → QR pairing → credentials в Keychain → katana-connector:// с
 - Нет фоновой доставки (BackgroundTasks, push): события отправляются при запуске, возврате в приложение, после нового события и по «Синхронизировать».
 - «Отключить на этом iPhone» не отзывает устройство на сервере — его нужно удалить в Katana вручную.
 - Одно активное подключение на iPhone; события другого или прежнего подключения хранятся и автоматически не отправляются.
-- Нет HealthKit, NFC, Bluetooth, фоновой геолокации и геозон, микрофона и речи, push, Share Extension, Universal Links, новых background modes и entitlements (и в v0.2).
+- Нет HealthKit, Bluetooth, фоновой геолокации (UIBackgroundModes), микрофона и речи, push, Universal Links и entitlements. Core NFC и встроенный Share Extension в v0.3 изолированы до проверки подписи (D-046); «Всегда» — только для геозон.
 - Распространение — unsigned IPA + Sideloadly; с бесплатным Apple ID подпись действует 7 дней.
 
 ## Постоянный Bundle ID
@@ -55,6 +63,10 @@ Bundle ID — **`app.katana.connector`**, он не меняется. На нё�
 | Activity Journal (v0.2) | `Application Support/KatanaConnector/ActivityJournal/activity-journal.json` |
 | История check-in без координат (v0.2) | `Application Support/KatanaConnector/LocationCheckIn/check-ins.json` |
 | Напоминания Connector (v0.2) | `Application Support/KatanaConnector/Reminders/reminders.json` |
+| Выполненные Action Drafts (v0.3) | `Application Support/KatanaConnector/ActionDrafts/action-drafts.json` |
+| NFC-действия (v0.3) | `Application Support/KatanaConnector/NFCActions/nfc-actions.json` |
+| Геозоны (v0.3, округлённые координаты) | `Application Support/KatanaConnector/Geofences/geofences.json` |
+| Захват: inbox и история (v0.3) | `Application Support/KatanaConnector/CaptureInbox/` |
 
 Эти идентификаторы закреплены unit-тестами. Старое приложение ScreenshotSweep (`local.sweep.ScreenshotSweep`) — отдельное приложение; данные из него не переносятся.
 
@@ -85,4 +97,5 @@ Workflow: `xcodegen generate` → unit-тесты на iOS Simulator → `xcodeb
 
 - Автоматические проверки — unit-тесты в CI (`Tests/KatanaConnectorTests`).
 - Полный ручной release checklist v0.1 (pairing, ссылки, cleanup, offline, kill, revoke, обновление, Capability Lab, приватность, smoke) — [`docs/TESTING.md`](docs/TESTING.md#release-checklist-v01).
-- Единая итоговая ручная проверка v0.2 — [`docs/TESTING.md`](docs/TESTING.md#release-checklist-v02-одна-итоговая-ручная-проверка). Промежуточные IPA v0.2 устанавливать не нужно.
+- Единая итоговая ручная проверка v0.2 — [`docs/TESTING.md`](docs/TESTING.md#release-checklist-v02-одна-итоговая-ручная-проверка).
+- Единая итоговая ручная проверка v0.3 (A–L) — [`docs/TESTING.md`](docs/TESTING.md#release-checklist-v03-одна-итоговая-ручная-проверка). Промежуточные IPA v0.3 устанавливать не нужно.
