@@ -128,7 +128,7 @@ final class CaptureTests: XCTestCase {
                     "https://exämple.invalid", "file:///etc/passwd", "katana-connector://open?v=1&feature=pairing"] {
             assertRejected(.invalidURL, .url, Data(bad.utf8))
         }
-        assertRejected(.invalidURL, .url, Data(("https://example.invalid/" + String(repeating: "a", count: 2040)).utf8))
+        assertRejected(.tooLarge, .url, Data(("https://example.invalid/" + String(repeating: "a", count: 2040)).utf8))   // the byte limit is checked first
     }
 
     func testOversizeIsCheckedOnActualBytes() {
