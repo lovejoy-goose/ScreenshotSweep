@@ -24,6 +24,8 @@ struct KatanaConnectorApp: App {
     @StateObject private var nfcActions: NFCActionCoordinator
     // Region delegate is set at launch (also a background relaunch by iOS); Always only by button.
     @StateObject private var geofences: GeofenceCoordinator
+    // Captures are validated into the inbox and uploaded only after «Отправить в Katana».
+    @StateObject private var capture: CaptureCoordinator
     private let capabilityRegistry: CapabilityRegistry
 
     init() {
@@ -65,6 +67,15 @@ struct KatanaConnectorApp: App {
         actionDraftCoordinator.register(geofenceCoordinator, for: .geofenceCreate)
         // Crossings that relaunched the app are delivered as soon as the handler is installed.
         Task { await geofenceCoordinator.start() }
+        let appInbox = CaptureInboxStore.applicationSupport()
+        let uploadClient = URLSessionConnectorAPIClient(
+            store: tokenStore, transport: URLSessionConnectorTransport(session: URLSessionConnectorTransport.makeUploadSession()))
+        let captureCoordinator = CaptureCoordinator(
+            inboxes: [appInbox] + [CaptureInboxStore.appGroup()].compactMap { $0 },
+            historyStore: VersionedJSONFileStore(directoryURL: appInbox.directoryURL, fileName: CaptureHistoryFile.fileName),
+            uploader: uploadClient, sink: delivery)
+        captureCoordinator.actionDrafts = actionDraftCoordinator
+        actionDraftCoordinator.register(captureCoordinator, for: .sharedCapture)
 
         capabilityRegistry = registry
         _sweepStore = StateObject(wrappedValue: SweepStore(session: session))
@@ -78,6 +89,7 @@ struct KatanaConnectorApp: App {
         _actionDrafts = StateObject(wrappedValue: actionDraftCoordinator)
         _nfcActions = StateObject(wrappedValue: nfc)
         _geofences = StateObject(wrappedValue: geofenceCoordinator)
+        _capture = StateObject(wrappedValue: captureCoordinator)
     }
 
     var body: some Scene {
@@ -94,6 +106,7 @@ struct KatanaConnectorApp: App {
                 .environmentObject(actionDrafts)
                 .environmentObject(nfcActions)
                 .environmentObject(geofences)
+                .environmentObject(capture)
                 .task {
                     // Status read only: no prompts, no probes.
                     await capabilityLab.refreshAuthorizations()
@@ -112,6 +125,7 @@ struct KatanaConnectorApp: App {
                 Task { await actionDrafts.retryPendingEvents() }
                 Task { await nfcActions.retryPendingEvents() }
                 geofences.isAppActive = true
+                Task { await capture.resumePending() }
                 Task {
                     await geofences.reconcile()
                     await geofences.saveEvents()

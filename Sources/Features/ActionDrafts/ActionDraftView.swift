@@ -29,9 +29,12 @@ struct ActionDraftView: View {
             case .continuing:
                 previewSection
                 Section {
-                    Label("Продолжите на экране «Поделиться с Katana». Действие будет выполнено после отправки.",
+                    Label("Действие будет выполнено после отправки на экране «Поделиться с Katana».",
                           systemImage: "arrow.forward.circle")
                         .font(.footnote)
+                    NavigationLink(value: AppRoute.capture) {
+                        Text("Открыть «Поделиться с Katana»")
+                    }
                 }
             case .accepted:
                 Section {

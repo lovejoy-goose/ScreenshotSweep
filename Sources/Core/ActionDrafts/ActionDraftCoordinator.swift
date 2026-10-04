@@ -150,7 +150,7 @@ final class ActionDraftCoordinator: ObservableObject {
         phases[draftID] = .performing
         switch await handler.performActionDraft(draft) {
         case .completed(let resultRef):
-            await recordAccepted(draft, resultRef: resultRef)
+            await recordAccepted(draftID: draft.draftID, kind: draft.kind, resultRef: resultRef)
         case .continuing:
             phases[draftID] = .continuing
         case .notPerformed:
@@ -159,10 +159,10 @@ final class ActionDraftCoordinator: ObservableObject {
     }
 
     /// Called by a feature that continued the draft on its own screen (capture) once its own
-    /// event is saved. Ignored for drafts that are not continuing.
-    func completeDeferred(draftID: UUID, resultRef: UUID) async {
-        guard acceptedRecord(for: draftID) == nil, phases[draftID] == .continuing, let draft = drafts[draftID] else { return }
-        await recordAccepted(draft, resultRef: resultRef)
+    /// event is saved — also after a relaunch, when the draft itself is no longer in memory.
+    func completeDeferred(draftID: UUID, kind: ActionDraftKind, resultRef: UUID) async {
+        guard acceptedRecord(for: draftID) == nil else { return }
+        await recordAccepted(draftID: draftID, kind: kind, resultRef: resultRef)
     }
 
     /// The feature abandoned a continuing draft (e.g. the capture was cancelled): it can be performed again.
@@ -171,8 +171,8 @@ final class ActionDraftCoordinator: ObservableObject {
         phases[draftID] = .loaded
     }
 
-    private func recordAccepted(_ draft: ActionDraft, resultRef: UUID) async {
-        let record = AcceptedActionDraft(draftID: draft.draftID, kind: draft.kind, acceptedAt: WholeSeconds.floor(now()),
+    private func recordAccepted(draftID: UUID, kind: ActionDraftKind, resultRef: UUID) async {
+        let record = AcceptedActionDraft(draftID: draftID, kind: kind, acceptedAt: WholeSeconds.floor(now()),
                                          resultRef: resultRef, eventID: UUID(), eventSaved: false)
         accepted.insert(record, at: 0)
         if accepted.count > ActionDraftStoreFile.maxAccepted {
@@ -180,12 +180,12 @@ final class ActionDraftCoordinator: ObservableObject {
         }
         guard persist() else {
             // The feature already acted; keep the record in memory so it is not repeated in this run.
-            phases[draft.draftID] = .accepted
+            phases[draftID] = .accepted
             return
         }
-        drafts[draft.draftID] = nil
-        phases[draft.draftID] = .accepted
-        await saveEvent(of: draft.draftID)
+        drafts[draftID] = nil
+        phases[draftID] = .accepted
+        await saveEvent(of: draftID)
     }
 
     // MARK: Events

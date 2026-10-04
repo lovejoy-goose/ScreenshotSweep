@@ -43,6 +43,8 @@ struct RootView: View {
                         NFCActionPreviewView(actionID: id, source: .shortcut)
                     case .geofences:
                         GeofencesView()
+                    case .capture:
+                        CaptureView()
                     }
                 }
         }

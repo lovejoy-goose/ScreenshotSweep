@@ -324,7 +324,7 @@ final class ActionDraftTests: XCTestCase {
         XCTAssertEqual(coordinator.phase(for: ActionDraftFixtures.draftID), .loaded)
         await coordinator.perform(ActionDraftFixtures.draftID)
         let captureID = UUID()
-        await coordinator.completeDeferred(draftID: ActionDraftFixtures.draftID, resultRef: captureID)
+        await coordinator.completeDeferred(draftID: ActionDraftFixtures.draftID, kind: .sharedCapture, resultRef: captureID)
         XCTAssertEqual(coordinator.phase(for: ActionDraftFixtures.draftID), .accepted)
         XCTAssertEqual(coordinator.acceptedRecord(for: ActionDraftFixtures.draftID)?.resultRef, captureID)
         XCTAssertEqual(sink.events.count, 1)

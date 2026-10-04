@@ -74,6 +74,9 @@ struct DashboardView: View {
                 NavigationLink(value: AppRoute.geofences) {
                     Label("Геозоны", systemImage: "mappin.circle")
                 }
+                NavigationLink(value: AppRoute.capture) {
+                    Label("Поделиться с Katana", systemImage: "square.and.arrow.up")
+                }
             }
 
             Section("Возможности устройства") {
