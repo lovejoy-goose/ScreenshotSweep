@@ -193,3 +193,102 @@ extension URLSessionConnectorAPIClient: ReminderDraftFetching {
         return try response.validated(requestedID: id, now: now())
     }
 }
+
+// MARK: - Action drafts (v0.3, D-047)
+
+extension URLSessionConnectorAPIClient: ActionDraftFetching {
+    static func actionDraftPathComponents(_ draftID: UUID) -> [String] {
+        ["api", "connector", "action-drafts", draftID.uuidString.lowercased()]
+    }
+
+    /// `GET /api/connector/action-drafts/{draft_id}`: Bearer read right before the request, no
+    /// redirects, ≤ 64 KiB, strict schema, TTL on the server clock; never retried automatically.
+    func fetchActionDraft(id: UUID) async throws -> ActionDraft {
+        let credentials: PairingCredentials
+        do {
+            credentials = try loadCredentials()
+        } catch ConnectorAPIError.unauthorized {
+            throw ActionDraftError.unauthorized
+        } catch {
+            throw ActionDraftError.notPaired
+        }
+        let request: URLRequest
+        do {
+            request = try makeRequest(method: "GET", pathComponents: Self.actionDraftPathComponents(id), body: nil,
+                                      credentials: credentials)
+        } catch {
+            throw ActionDraftError.invalidResponse
+        }
+        let result: (Data, HTTPURLResponse)
+        do {
+            result = try await transport.perform(request)
+        } catch ConnectorTransportError.network {
+            throw ActionDraftError.offline
+        } catch {
+            throw ActionDraftError.invalidResponse
+        }
+        if let error = ActionDraftError.classify(statusCode: result.1.statusCode) { throw error }
+        return try ActionDraftParser.parse(result.0, requestedID: id)
+    }
+}
+
+// MARK: - Capture upload (v0.3, D-050)
+
+extension URLSessionConnectorAPIClient: CaptureUploading {
+    static let captureUploadTimeout: TimeInterval = 60
+
+    static func capturePathComponents(_ captureID: UUID) -> [String] {
+        ["api", "connector", "captures", captureID.uuidString.lowercased()]
+    }
+
+    /// `PUT /api/connector/captures/{capture_id}` with the confirmed bytes only. No file name,
+    /// path or metadata; Bearer read right before the request; no redirects; idempotent per ID.
+    func uploadCapture(id: UUID, kind: CaptureKind, contentType: CaptureContentType, sha256: String,
+                       body: Data) async throws -> CaptureUploadReceipt {
+        let credentials: PairingCredentials
+        do {
+            credentials = try loadCredentials()
+        } catch ConnectorAPIError.unauthorized {
+            throw CaptureUploadError.unauthorized
+        } catch {
+            throw CaptureUploadError.notPaired
+        }
+        var request: URLRequest
+        do {
+            request = try makeRequest(method: "PUT", pathComponents: Self.capturePathComponents(id), body: body,
+                                      credentials: credentials)
+        } catch {
+            throw CaptureUploadError.invalidResponse
+        }
+        request.timeoutInterval = Self.captureUploadTimeout
+        request.setValue(contentType.rawValue, forHTTPHeaderField: "Content-Type")
+        request.setValue(kind.rawValue, forHTTPHeaderField: "X-Katana-Capture-Kind")
+        request.setValue(sha256, forHTTPHeaderField: "X-Katana-Capture-SHA256")
+        let result: (Data, HTTPURLResponse)
+        do {
+            result = try await transport.perform(request)
+        } catch ConnectorTransportError.network {
+            throw CaptureUploadError.offline
+        } catch {
+            throw CaptureUploadError.invalidResponse
+        }
+        if let error = CaptureUploadError.classify(statusCode: result.1.statusCode) { throw error }
+        guard let response = try? ConnectorJSON.makeDecoder().decode(CaptureUploadResponse.self, from: result.0) else {
+            throw CaptureUploadError.invalidResponse
+        }
+        return try response.validated(id: id, sha256: sha256, size: body.count)
+    }
+}
+
+extension URLSessionConnectorTransport {
+    /// Like the default session, but long enough for a 10 MiB upload.
+    static func makeUploadSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 60
+        configuration.timeoutIntervalForResource = 180
+        configuration.httpCookieAcceptPolicy = .never
+        configuration.httpShouldSetCookies = false
+        configuration.urlCache = nil
+        return URLSession(configuration: configuration)
+    }
+}

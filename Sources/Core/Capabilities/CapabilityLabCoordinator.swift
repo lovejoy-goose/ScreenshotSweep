@@ -9,6 +9,11 @@ import Foundation
 final class CapabilityLabCoordinator: ObservableObject {
     /// The four manual probes, in display order.
     static let labCapabilities: [CapabilityID] = [.camera, .currentLocation, .motion, .localNotifications]
+    /// v0.3 probes for physical triggers (D-051).
+    static let triggerCapabilities: [CapabilityID] = [.locationAlways, .regionMonitoring]
+    /// Shown without a button: this build is not provisioned for them (D-046), or they are unused.
+    static let gatedCapabilities: [CapabilityID] = [.coreNFC, .coreNFCWrite, .appGroup, .shareExtension, .backgroundLocation]
+    static let allProbeCapabilities = labCapabilities + triggerCapabilities
 
     /// Bumped on every snapshot change so views re-read `snapshot(for:)`.
     @Published private(set) var revision = 0
@@ -59,7 +64,7 @@ final class CapabilityLabCoordinator: ObservableObject {
     /// that starts later reads fresh values and may change the authorization honestly
     /// (e.g. back to `not_requested` after Reset Location & Privacy).
     func refreshAuthorizations() async {
-        for id in Self.labCapabilities {
+        for id in Self.allProbeCapabilities {
             guard let probe = probes[id], !running.contains(id) else { continue }
             let baseline = generation(of: id)
             let availability = await probe.availability()
@@ -152,6 +157,7 @@ final class CapabilityLabCoordinator: ObservableObject {
             case .unavailable: return (.failed, .unavailable)
             case .permissionDenied: return (.failed, .permissionDenied)
             case .systemError: return (.failed, .systemError)
+            case .requiresSettings: return (.failed, .requiresSettings)
             }
         } catch {
             return (.failed, Task.isCancelled || error is CancellationError ? .cancelled : .systemError)

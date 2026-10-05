@@ -11,6 +11,7 @@ struct DashboardView: View {
 
     private static let highlighted: [CapabilityID] = [
         .photos, .camera, .currentLocation, .motion, .localNotifications, .backgroundLocation, .healthKit,
+        .locationAlways, .regionMonitoring, .coreNFC, .shareExtension,
     ]
 
     var body: some View {
@@ -67,6 +68,18 @@ struct DashboardView: View {
                 }
             }
 
+            Section("Физические триггеры") {
+                NavigationLink(value: AppRoute.nfcActions) {
+                    Label("NFC-действия", systemImage: "wave.3.right")
+                }
+                NavigationLink(value: AppRoute.geofences) {
+                    Label("Геозоны", systemImage: "mappin.circle")
+                }
+                NavigationLink(value: AppRoute.capture) {
+                    Label("Поделиться с Katana", systemImage: "square.and.arrow.up")
+                }
+            }
+
             Section("Возможности устройства") {
                 ForEach(Self.highlighted, id: \.self) { id in
                     LabeledContent(registry.descriptor(for: id).title,
@@ -79,6 +92,7 @@ struct DashboardView: View {
                 LabeledContent("Connector Core", value: "pairing + events")
                 LabeledContent("Capability Lab", value: "4 probes")
                 LabeledContent("Контекст и действия", value: "v0.2")
+                LabeledContent("Физические триггеры", value: "v0.3")
             }
             .font(.footnote)
         }

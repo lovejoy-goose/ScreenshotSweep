@@ -308,6 +308,112 @@
 - **Статус:** accepted (V2-001); дополняет D-006, D-034
 - **Решение:** новых Info.plist-ключей, background modes и entitlements нет. Используются существующие `NSLocationWhenInUseUsageDescription` (Capability Lab + Location Check-in) и `NSMotionUsageDescription` (Capability Lab + Activity Journal) — их тексты обновлены и честно говорят, что именно уходит в Katana и только после подтверждения. Локальные уведомления ключа не требуют. Каждое разрешение — по своей кнопке внутри функции: Motion — «Определить текущую активность»/«Начать сессию»; геолокация — «Определить текущее место»; уведомления — «Создать напоминание». HealthKit, Core NFC, Bluetooth, фоновая геолокация, геозоны, push, Share Extension по-прежнему отложены (D-008).
 
+## D-045 Milestone v0.3 «Physical Triggers & Capture» — один PR
+
+- **Статус:** accepted (V3-001); для v0.3 действует как D-037
+- **Решение:** ветка `feature/katana-connector-v0.3-physical-triggers-capture`, один Draft PR, один финальный IPA, одна итоговая ручная проверка. Внутренние задачи V3-001…V3-007 (`docs/TASKS.md`), логические коммиты. Версия `0.3.0`. Bundle ID основного приложения и все идентификаторы хранения v0.1/v0.2 не меняются. PR не переводится в Ready и не сливается, Release v0.3 не публикуется. Разрешение пользователя на ветку, коммиты, push и Draft PR, а также на замену D-008/D-034/D-040/D-044 в части, описанной ниже, получено 2026-10-04.
+- **Открытые post-merge проверки v0.2** (не блокируют v0.3, в Release checklist v0.3, раздел L): фактический показ баннера локального напоминания и доставка `reminder.local.cancelled` на реальном iPhone.
+
+## D-046 Provisioning spike v0.3 и изоляция entitlements
+
+- **Статус:** accepted (V3-001); уточняет D-008
+- **Что доказано (CI, unsigned сборка, без устройства):**
+  - Core NFC (`NFCNDEFReaderSession`, чтение и запись NDEF через `NFCNDEFTag.queryNDEFStatus`/`writeNDEF`) компилируется и линкуется в unsigned IPA. Для работы на устройстве нужны entitlement `com.apple.developer.nfc.readersession.formats` (`NDEF`/`TAG`) и Info.plist-ключ `NFCReaderUsageDescription`; без ключа обращение к Core NFC завершает процесс, без entitlement сессия сразу инвалидируется. Блокировку метки (`writeLock`) Connector не вызывает.
+  - Share Extension — отдельный target `KatanaShareExtension` (`app.katana.connector.share-extension`), собирается в CI отдельно. Передать данные основному приложению он может только через общий контейнер App Group (`com.apple.security.application-groups`); без него у extension и приложения разные песочницы.
+  - Геозоны (`CLLocationManager` region monitoring, `CLCircularRegion`) **не требуют entitlement** и `UIBackgroundModes`: система сама будит/перезапускает приложение при пересечении. Нужны авторизация **Always** и ключ `NSLocationAlwaysAndWhenInUseUsageDescription`. Лимит — 20 регионов на приложение. После перезагрузки iOS восстанавливает зарегистрированные регионы; после перезапуска приложение должно сразу назначить delegate, чтобы получить событие.
+  - Фоновая геолокация (`UIBackgroundModes: location`, `allowsBackgroundLocationUpdates`) для геозон не нужна и **не добавляется**.
+- **Что не доказано и проверяется только на iPhone:** выдаёт ли подпись Sideloadly (особенно бесплатный Personal Team) entitlements NFC и App Group, и сколько App ID доступно для extension.
+- **Решение (выбор пользователя «изолировать»):** основной IPA v0.3 **без новых entitlements** и **без встроенного extension** — он гарантированно устанавливается поверх v0.2.
+  - Core NFC: код адаптера есть, но выключен статусом `requires_entitlement` (`CoreNFCAvailability`: entitlement не сконфигурирован, ключа `NFCReaderUsageDescription` нет) — кнопки сканирования/записи не активны. Работает гарантированный путь Shortcuts + NFC (D-048).
+  - Share Extension: target собирается в CI (доказательство), но не встраивается в IPA; capability `share_extension` и `app_group` — `missing_entitlement`. Тот же конвейер захвата (валидация, inbox, preview, загрузка, события) доступен в приложении через экран «Поделиться с Katana» (выбор файла/фото, вставка текста/URL) — безопасный fallback (D-050).
+  - Геозоны работают (entitlement не нужен), с Always только по кнопке (D-049).
+  - Включение NFC/App Group/extension — отдельное решение после проверки подписи на iPhone: добавить entitlements, `NFCReaderUsageDescription`, встроить extension, переключить `CoreNFCAvailability`/`CaptureInboxLocation`.
+
+## D-047 Action Draft и URL v3
+
+- **Статус:** accepted (V3-001); обобщает подход D-041
+- **Решение:**
+  - Ссылка `katana-connector://open?v=3&feature=action&draft_id=<uuid>` только открывает экран черновика действия. Загрузка — кнопкой «Загрузить действие»: `GET /api/connector/action-drafts/{draft_id}`, Bearer, HTTPS без редиректов, ответ ≤ 64 KiB, timeout 15 с.
+  - Строгая схема: точный набор ключей верхнего уровня и `payload` для каждого `kind`; **неизвестные поля отклоняются** (в отличие от reminder drafts v0.2). Виды: `nfc_action`, `geofence_create`, `shared_capture`.
+  - TTL проверяется по **серверному** времени: ответ содержит `server_time`; черновик действителен, если `server_time < expires_at` и `expires_at − server_time ≤ 7 дней`. Часы iPhone для TTL не используются.
+  - 401 → `requires_repair` (без повторов); 404/403 → не найден; 409 → уже использован; 410 → истёк.
+  - Повторное выполнение запрещено: принятый черновик записывается локально (`action-drafts.json`) — повторное открытие показывает «уже выполнено» без сети. Сервер **атомарно** помечает черновик использованным, когда принимает итоговое событие `action_draft.accepted` (повтор того же `event_id` → `duplicate`, другое событие для того же черновика → `rejected` с кодом `draft_consumed`). Отдельного consume-запроса нет.
+  - Ссылка `katana-connector://open?v=3&feature=nfc_action&action_id=<uuid>` только открывает preview локально зарегистрированного NFC-действия (D-048).
+  - Правила URL v3 = v2 (длина, ASCII, scheme/host/path, каждый параметр один раз, без percent-encoding, канонический UUID), параметры только `v`, `feature`, `draft_id`, `action_id`; `draft_id` только для `action`, `action_id` только для `nfc_action`; функции v1/v2 с `v=3` → `unsupportedVersion`. В v1/v2 `action_id` по-прежнему неизвестный параметр.
+  - **Trust boundary локальных черновиков захвата:** записи inbox, созданные Share Extension или экраном захвата, — недоверенный локальный ввод, а не серверный Action Draft. Они не содержат команд, никогда не исполняются автоматически, основное приложение заново проверяет каждую запись (размер, тип по сигнатуре, SHA-256) и показывает preview до любой загрузки.
+
+## D-048 NFC-действия
+
+- **Статус:** accepted (V3-001)
+- **Решение:**
+  - NFC-действие регистрируется только из Action Draft `nfc_action` (Katana знает `action_id`); локально хранятся только `action_id`, безопасное имя (метка от Katana, ≤ 60), время, включено/выключено, срок действия. Сырой UID и NDEF payload нигде не сохраняются.
+  - Гарантированный путь — Shortcuts: автоматизация «NFC → Открыть URL» с ссылкой v3 `nfc_action`. Ссылка открывает preview; «Выполнить» (подтверждение) → событие `nfc.action.completed` с `result: confirmed`; «Отклонить» → то же событие с `result: declined`; уход с экрана — ничего.
+  - Повторное касание метки в течение 120 с показывает тот же ожидающий запуск (тот же `execution_id`), дубля нет. Ожидающий запуск сохраняется на диск; после перезапуска приложения он показывается с `interrupted: true`; старше 10 минут — отбрасывается без события.
+  - Выключенное, истёкшее и неизвестное действие показывается явно, событие не создаётся.
+  - Native Core NFC (чтение одной метки, запись безопасной ссылки v3 с preview и подтверждением, проверка read-only/неподдерживаемой метки, без lock) — за `CoreNFCAvailability` (D-046); в этой сборке недоступен.
+
+## D-049 Локальные геозоны
+
+- **Статус:** accepted (V3-001); **заменяет** запрет Always/region monitoring из D-034, D-040, D-044 **только для геозон**; фоновая геолокация (`UIBackgroundModes`, `allowsBackgroundLocationUpdates`, significant-change) по-прежнему запрещена
+- **Решение:**
+  - Создание только пользователем (или из Action Draft `geofence_create` с подтверждением): «Определить текущее место» (When In Use, одна фиксация) или координаты черновика → имя (1…40, только локально) и радиус (100, 200, 500 или 1000 м) → preview → «Зарегистрировать геозону» → отдельное подтверждение → **только тут** запрос Always (если не выдан) → регистрация `CLCircularRegion` → событие `geofence.created`.
+  - Без Always геозона не создаётся (не обещаем неработающий фоновый триггер); экран и Capability Lab объясняют, что нужно «Всегда» в Настройках.
+  - Координаты округляются до **4 знаков** (≈11 м) до сохранения и отправки; хранятся только в `geofences.json` (file protection, без backup) — для повторной регистрации региона; в `geofence.created` уходят только после подтверждения; в событиях пересечения и удаления координат нет. Никаких location samples, маршрутов и трекинга.
+  - Регионы Connector имеют идентификатор `app.katana.connector.geofence.<uuid>`; при запуске и возврате в приложение состояние сверяется с системой: чужие регионы с этим префиксом, которых нет среди включённых геозон, снимаются (скрытых геозон нет); отсутствующие в системе включённые регистрируются заново и помечаются `interrupted` до следующего пересечения. UI показывает реальное состояние: «активна» / «не зарегистрирована системой» / «нет разрешения Всегда» / «выключена».
+  - Лимит: не больше 20 включённых геозон (лимит Core Location); всего хранится не больше 20.
+  - Пересечения: событие `geofence.transitioned` создаётся автоматически — это прямое следствие подтверждённой пользователем геозоны, текст создания об этом говорит. Дубли (та же геозона и тот же переход в течение 120 с) отбрасываются. Запись пересечения сохраняется в файл до enqueue и повторяется с тем же `event_id`. `delivery_context`: `foreground` / `background`.
+  - Выключение снимает системный регион (без события); удаление — с подтверждением, снимает регион, стирает координаты, событие `geofence.removed`.
+
+## D-050 Захват «Поделиться с Katana» и Share Extension
+
+- **Статус:** accepted (V3-001)
+- **Решение:**
+  - Типы (один attachment за операцию): `text` (UTF-8, ≤ 10 000 Unicode scalars, без NUL), `url` (только `http`/`https`, ≤ 2048, без user/password), `image` (JPEG/PNG/HEIC, ≤ 10 MiB), `pdf` (≤ 10 MiB), `file` — только allowlist: plain text `.txt`, CSV `.csv`, JSON `.json` (≤ 5 MiB, валидный UTF-8). Тип определяется по сигнатуре содержимого и сверяется с заявленным расширением/UTI; несовпадение → отказ. Фактический размер проверяется по байтам.
+  - Имя файла нормализуется: только последний компонент, без `/`, `\`, `..`, управляющих символов и ведущих точек, ≤ 100 символов, расширение из allowlist. Имя показывается только в preview и **никуда не отправляется**.
+  - Изображения перед сохранением в inbox перекодируются в тот же формат без метаданных (EXIF, GPS, TIFF, IPTC, XMP), сохраняется только ориентация; если перекодировать нельзя — захват отклоняется. PDF и прочие файлы не очищаются (ограничение v0.3, показывается в preview). OCR нет.
+  - Inbox: версионированные записи (`manifest` + `payload`) в `Application Support/KatanaConnector/CaptureInbox/` (с App Group — в общем контейнере, D-046), атомарно, file protection, без backup; TTL 24 ч для неподтверждённых; не больше 10 записей и 50 MiB; битая/неизвестная запись → `quarantine/`.
+  - Ничего не отправляется автоматически: preview → «Отправить в Katana» (подтверждение) → основное приложение заново проверяет запись → `PUT /api/connector/captures/{capture_id}` с существующей Bearer-аутентификацией → `object_ref` → событие `share.capture.created`. «Отменить» → `share.capture.cancelled` (без содержимого) и удаление файлов. Временные файлы удаляются после завершения или отмены; в истории остаются только вид, корзина размера и статус.
+  - Extension не получает токен, не обращается к Katana и не исполняет команд; пишет только в inbox App Group.
+  - Текст и URL уходят только в теле upload после подтверждения; в событиях нет содержимого, URL, имени файла, путей, PHAsset ID и метаданных.
+
+## D-051 События и capabilities v0.3
+
+- **Статус:** accepted (V3-001); расширяет D-038, D-016
+- **Решение:** новые типы `action_draft.accepted`, `nfc.action.completed`, `geofence.created`, `geofence.transitioned`, `geofence.removed`, `share.capture.created`, `share.capture.cancelled` — по правилам D-038 (точные ключи, `event_id` один раз, существующая очередь и scope). Новые `CapabilityID` (wire values добавляются, существующие не меняются): `core_nfc_write`, `app_group`, `share_extension`, `location_always`, `region_monitoring`; существующий `core_nfc` = чтение NFC. Новые коды `detail`: `always_authorized`, `region_monitoring_available`, `requires_settings`. Capability Lab получает два ручных probe — `location_always` и `region_monitoring` (Always запрашивается только кнопкой); `core_nfc`, `core_nfc_write`, `app_group`, `share_extension` показываются как `missing_entitlement` без кнопки; `background_location` остаётся `planned` (не используется). Отдельные измерения availability / authorization / probe не смешиваются; «requires_settings» — подпись UI для `denied` и код `detail`.
+
+## D-052 Хранение v0.3
+
+- **Статус:** accepted (V3-001); дополняет D-043
+- **Решение:** новые файлы, все v1, на `VersionedJSONFileStore` (атомарно, file protection, без backup, quarantine): `ActionDrafts/action-drafts.json` (принятые черновики), `NFCActions/nfc-actions.json` (регистрации и ожидающие запуски), `Geofences/geofences.json` (геозоны с округлёнными координатами, ожидающие события пересечений, последние переходы для дедупликации), `CaptureInbox/` (каталог записей `<capture_id>.json` + `<capture_id>.payload`, `history.json`, `quarantine/`). Идентификаторы v0.1/v0.2 не меняются; миграций нет.
+
+## D-053 Границы фреймворков v0.3
+
+- **Статус:** accepted (V3-001); уточняет D-024
+- **Решение:** Core остаётся без UIKit/SwiftUI/Photos/AVFoundation/CoreLocation/CoreMotion/UserNotifications/CoreNFC. Исключения: `Core/Capture` может использовать `ImageIO`, `CoreGraphics` (очистка метаданных изображений) и `CryptoKit` (SHA-256). CoreNFC — только `Features/NFCActions`; CoreLocation для геозон и Always-probe — только `Features/Geofences/SystemGeofenceAccess.swift` (единственный файл с `requestAlwaysAuthorization` и регистрацией регионов). Share Extension использует только Core/Capture и UIKit/SwiftUI.
+
+## D-054 HTTPS-мост для постоянных NFC-меток
+
+- **Статус:** accepted (V3-008); дополняет D-048; Universal Links и Associated Domains по-прежнему не используются
+- **Контекст:** NFC-наклейки ISO 14443-4 / Type A / IsoDep читаются iPhone (NFC Tools), но автоматизация Команд по UID таких меток не запускается. Фоновое чтение NFC в iOS открывает `https`-ссылки из NDEF URI-записи, а произвольные custom scheme — нет.
+- **Решение:**
+  - На метку записывается только `https://<katana-host>/c/nfc/<action_id>` — одна NDEF URI-запись, `action_id` — тот же непрозрачный UUID NFC-действия. Ни UID, ни текста действия, ни токенов на метке нет.
+  - Katana отдаёт по этому адресу **публичную статическую страницу-мост** (без входа, cookies и побочных эффектов), которая только переводит в уже существующую ссылку `katana-connector://open?v=3&feature=nfc_action&action_id=<uuid>`. GET ничего не выполняет и не создаёт событий; одинаковая страница для любого корректного UUID (не раскрывает, существует ли действие и его название); некорректный UUID → `404`.
+  - Новой сборки не нужно: Connector уже обрабатывает ссылку v3 — preview, «Выполнить»/«Отклонить», `nfc.action.completed`, exact-once и offline-очередь (D-048). Universal Link entitlement не запрашивается.
+  - `source` события — `shortcut`: значение означает «запуск внешней ссылкой» (Команды или HTTPS-мост с метки); Connector их не различает и не узнаёт ничего о метке. Новых wire values нет.
+  - Сервер не получает UID метки (Safari его не передаёт); `action_id` из пути не попадает в аналитику и телеметрию; в access-логах путь моста маскируется до `/c/nfc/:id`.
+  - Katana Devices после создания `nfc_action` показывает HTTPS-адрес и QR с ним (для записи через NFC Tools), никогда — ссылку с UID или текстом.
+
+## D-055 Opt-in «Выполнять сразу после открытия» для NFC-действий
+
+- **Статус:** accepted (V3-009, по прямому запросу пользователя 2026-10-05); **ослабляет** D-048 и правило «внешняя ссылка только открывает preview» — только для NFC-действий и только при явном локальном opt-in
+- **Решение:**
+  - У каждой регистрации NFC-действия локальный флаг `auto_execute`, по умолчанию `false`. Существующие `nfc-actions.json` без ключа читаются как `false` (обратно совместимое расширение формата v1, без смены версии и без потери данных).
+  - Включить можно только в Connector («NFC-действия» → «Выполнять сразу после открытия») после подтверждения с предупреждением; выключить — сразу. Ссылка, Action Draft, сервер и capability report флаг не видят и изменить не могут; в Katana он не отправляется.
+  - При открытии внешней NFC-ссылки (Команды или HTTPS-мост, D-054): если действие зарегистрировано, включено, не истекло и `auto_execute = true` — сразу создаётся ровно одно `nfc.action.completed` (`result: confirmed`, `source: shortcut`) через существующую persistent-очередь (exact-once, offline, retry с тем же `event_id`). Неизвестное, выключенное, истёкшее — не выполняются и показываются как раньше. Без флага — прежний preview с «Выполнить»/«Отклонить».
+  - Повтор того же триггера в окне 120 с после автоматического выполнения показывает уже выполненный запуск и не выполняет действие снова; позже — новый запуск (новое событие).
+  - Wire contract не меняется: payload события идентичен ручному подтверждению; локальные поля `opened_at`/`auto_executed` хранятся только в `nfc-actions.json`. Сканирование Core NFC в приложении (за entitlement) автоматически не выполняет.
+- **Риск (принят пользователем):** при включённом флаге любой, у кого есть метка или ссылка этого действия, выполнит его на этом iPhone без подтверждения. Поэтому флаг — отдельно для каждого действия, выключен по умолчанию, включается только вручную с предупреждением.
+
 ---
 
 ## Открытые вопросы
@@ -323,4 +429,5 @@
 | Q-9 | Что делать с событиями чужих scope и legacy: ручная отправка после подтверждения или удаление по кнопке | после v0.1 |
 | Q-7 | ~~Имя URL scheme и список действий~~ — решено в D-032 | KC-007 |
 | Q-8 | ~~Состав probes Capability Lab~~ — решено в D-034 | KC-008 |
+| Q-11 | Включать ли Core NFC, App Group и встроенный Share Extension после проверки подписи Sideloadly на iPhone (D-046) | после v0.3 |
 | Q-10 | Нужен ли серверный endpoint «черновик использован» отдельно от события `reminder.local.scheduled` (сейчас Katana может считать черновик consumed по событию) | после v0.2 |

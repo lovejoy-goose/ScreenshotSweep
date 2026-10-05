@@ -18,16 +18,28 @@ struct KatanaConnectorApp: App {
     @StateObject private var locationCheckIn: LocationCheckInCoordinator
     // Drafts are loaded and notifications created only by buttons on the draft screen.
     @StateObject private var reminders: ReminderCoordinator
+    // Action drafts are loaded and performed only by buttons on the draft screen (v0.3).
+    @StateObject private var actionDrafts: ActionDraftCoordinator
+    // Triggers only open a preview; native Core NFC stays off without its entitlement (D-046).
+    @StateObject private var nfcActions: NFCActionCoordinator
+    // Region delegate is set at launch (also a background relaunch by iOS); Always only by button.
+    @StateObject private var geofences: GeofenceCoordinator
+    // Captures are validated into the inbox and uploaded only after «Отправить в Katana».
+    @StateObject private var capture: CaptureCoordinator
     private let capabilityRegistry: CapabilityRegistry
 
     init() {
         let tokenStore = KeychainTokenStore()
+        // One geofence adapter: its delegate is set at launch; it also serves the v0.3 probes.
+        let geofenceAccess = SystemGeofenceAccess()
         // Probes only touch the system when the user taps a probe button in Capability Lab.
         let lab = CapabilityLabCoordinator(store: .applicationSupport(), probes: [
             CameraProbe(system: SystemCameraAccess()),
             CurrentLocationProbe(system: SystemLocationAccess()),
             MotionProbe(system: SystemMotionAccess()),
             LocalNotificationsProbe(system: SystemNotificationAccess()),
+            LocationAlwaysProbe(system: geofenceAccess),
+            RegionMonitoringProbe(system: geofenceAccess),
         ])
         // The registry reads the same snapshot store, so reports and Dashboard see probe results.
         let registry = lab.registry
@@ -50,6 +62,24 @@ struct KatanaConnectorApp: App {
                                                  system: SystemCheckInLocationAccess(), sink: delivery)
         let reminderCoordinator = ReminderCoordinator(store: ReminderStoreFile.applicationSupportStore(), fetcher: apiClient,
                                                       notifications: SystemReminderNotifications(), sink: delivery)
+        let actionDraftCoordinator = ActionDraftCoordinator(store: ActionDraftStoreFile.applicationSupportStore(),
+                                                            fetcher: apiClient, sink: delivery)
+        let nfc = NFCActionCoordinator(store: NFCActionsFile.applicationSupportStore(), tags: SystemNFCTagAccess(), sink: delivery)
+        actionDraftCoordinator.register(nfc, for: .nfcAction)
+        let geofenceCoordinator = GeofenceCoordinator(store: GeofencesFile.applicationSupportStore(),
+                                                      system: geofenceAccess, sink: delivery)
+        actionDraftCoordinator.register(geofenceCoordinator, for: .geofenceCreate)
+        // Crossings that relaunched the app are delivered as soon as the handler is installed.
+        Task { await geofenceCoordinator.start() }
+        let appInbox = CaptureInboxStore.applicationSupport()
+        let uploadClient = URLSessionConnectorAPIClient(
+            store: tokenStore, transport: URLSessionConnectorTransport(session: URLSessionConnectorTransport.makeUploadSession()))
+        let captureCoordinator = CaptureCoordinator(
+            inboxes: [appInbox] + [CaptureInboxStore.appGroup()].compactMap { $0 },
+            historyStore: VersionedJSONFileStore(directoryURL: appInbox.directoryURL, fileName: CaptureHistoryFile.fileName),
+            uploader: uploadClient, sink: delivery)
+        captureCoordinator.actionDrafts = actionDraftCoordinator
+        actionDraftCoordinator.register(captureCoordinator, for: .sharedCapture)
 
         capabilityRegistry = registry
         _sweepStore = StateObject(wrappedValue: SweepStore(session: session))
@@ -60,6 +90,10 @@ struct KatanaConnectorApp: App {
         _activityJournal = StateObject(wrappedValue: journal)
         _locationCheckIn = StateObject(wrappedValue: checkIn)
         _reminders = StateObject(wrappedValue: reminderCoordinator)
+        _actionDrafts = StateObject(wrappedValue: actionDraftCoordinator)
+        _nfcActions = StateObject(wrappedValue: nfc)
+        _geofences = StateObject(wrappedValue: geofenceCoordinator)
+        _capture = StateObject(wrappedValue: captureCoordinator)
     }
 
     var body: some Scene {
@@ -73,6 +107,10 @@ struct KatanaConnectorApp: App {
                 .environmentObject(activityJournal)
                 .environmentObject(locationCheckIn)
                 .environmentObject(reminders)
+                .environmentObject(actionDrafts)
+                .environmentObject(nfcActions)
+                .environmentObject(geofences)
+                .environmentObject(capture)
                 .task {
                     // Status read only: no prompts, no probes.
                     await capabilityLab.refreshAuthorizations()
@@ -88,11 +126,20 @@ struct KatanaConnectorApp: App {
                 Task { await activityJournal.appDidBecomeActive() }
                 // Events of reminders that could not be queued earlier, with their original IDs.
                 Task { await reminders.retryPendingEvents() }
+                Task { await actionDrafts.retryPendingEvents() }
+                Task { await nfcActions.retryPendingEvents() }
+                geofences.isAppActive = true
+                Task { await capture.resumePending() }
+                Task {
+                    await geofences.reconcile()
+                    await geofences.saveEvents()
+                }
             case .background:
                 // iOS does not let the app observe in the background; the session says so honestly.
                 Task { await activityJournal.appDidEnterBackground() }
                 // An unconfirmed check-in fix is not kept while the app is in the background.
                 locationCheckIn.discardPreview()
+                geofences.isAppActive = false
             default:
                 break
             }

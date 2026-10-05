@@ -8,15 +8,17 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.2.0"
-    CURRENT_PROJECT_VERSION: "2"
+    MARKETING_VERSION: "0.3.0"
+    CURRENT_PROJECT_VERSION: "3"
 
 targets:
   KatanaConnector:
     type: application
     platform: iOS
     sources:
-      - Sources
+      - path: Sources
+        excludes:
+          - "ShareExtension/**"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.katana.connector
@@ -31,6 +33,7 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_NSCameraUsageDescription: "Katana Connector использует камеру только для сканирования QR-кода подключения к Katana и для ручной проверки камеры в Capability Lab. Изображение с камеры не сохраняется и никуда не отправляется."
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "Katana Connector определяет местоположение один раз и только по вашей кнопке: «Проверить геолокацию» в Capability Lab (координаты сразу отбрасываются) или «Определить текущее место» в Location Check-in — тогда координаты отправляются в Katana только после предпросмотра и вашего подтверждения. Фоновой геолокации нет."
+        INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: "Разрешение «Всегда» нужно только для геозон, которые вы сами создали в разделе «Геозоны»: iOS сообщает Katana Connector о входе и выходе, даже когда приложение закрыто. В Katana уходят только «вход» или «выход» и время — без координат и маршрутов. Фонового отслеживания перемещений нет."
         INFOPLIST_KEY_NSMotionUsageDescription: "Katana Connector определяет вид активности (ходьба, бег, транспорт и т.п.) только по вашим кнопкам: «Проверить датчики движения» в Capability Lab и «Определить текущую активность» или «Начать сессию» в Activity Journal. Сырые данные датчиков не сохраняются; в Katana уходят только вид активности и длительности — после вашего подтверждения."
         INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "Katana Connector показывает ваши скриншоты в разделе «Разобрать скриншоты», чтобы вы могли решить, какие удалить. Ничего не удаляется без вашего подтверждения, фото не отправляются в сеть."
         CODE_SIGN_STYLE: Manual
@@ -39,6 +42,32 @@ targets:
     scheme:
       testTargets:
         - KatanaConnectorTests
+
+  # Share Extension (D-046, D-050): built in CI as proof, NOT embedded in KatanaConnector.ipa
+  # (no dependency from the app) and without the App Group entitlement until verified on iPhone.
+  KatanaShareExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Sources/ShareExtension
+      - Sources/Core/Capture/CaptureKind.swift
+      - Sources/Core/Capture/CaptureValidation.swift
+      - Sources/Core/Capture/CaptureImageSanitizer.swift
+      - Sources/Core/Capture/CaptureInbox.swift
+      - Sources/Core/Connector/ConnectorModels.swift
+      - Sources/Core/Storage/VersionedJSONFileStore.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.katana.connector.share-extension
+        PRODUCT_NAME: KatanaShareExtension
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: Config/ShareExtension-Info.plist
+        INFOPLIST_KEY_CFBundleDisplayName: Katana Connector
+        APPLICATION_EXTENSION_API_ONLY: YES
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
 
   # Core unit tests: compiles Sources/Core directly, no host app and no UI.
   KatanaConnectorTests:

@@ -1,6 +1,6 @@
 # CLAUDE.md — правила работы в репозитории
 
-Приложение: **Katana Connector** (`app.katana.connector`, target `KatanaConnector`), исходно — ScreenshotSweep. v0.1.0 выпущен (tag `v0.1.0`). Рабочая ветка v0.2: `feature/katana-connector-v0.2-context-actions` — один milestone, один Draft PR, внутренние задачи V2-001…V2-006 логическими коммитами (D-037).
+Приложение: **Katana Connector** (`app.katana.connector`, target `KatanaConnector`), исходно — ScreenshotSweep. v0.1.0 выпущен (tag `v0.1.0`), v0.2 слит в `main`. Рабочая ветка v0.3: `feature/katana-connector-v0.3-physical-triggers-capture` — один milestone, один Draft PR, внутренние задачи V3-001…V3-007 логическими коммитами (D-045).
 Продукт и архитектура описаны в `docs/`. Этот файл — постоянные правила, которые действуют в каждой сессии.
 
 ## Перед изменениями
@@ -28,6 +28,7 @@
 - Activity (D-039): ни сырых Motion samples, ни временного ряда — только категории и агрегаты длительностей.
 - Location (D-040): координаты — только в `location.check_in.created`, только после предпросмотра и подтверждения, округлённые до enqueue (2 / ≤ 6 знаков); до подтверждения — только в памяти; высота/скорость/курс/этаж/сырая точность не покидают адаптер; в историях и логах координат нет.
 - Reminders (D-041): текст напоминания не передаётся в URL и не возвращается в событиях; ссылка несёт только `draft_id`.
+- v0.3 (D-047…D-050): ссылки v3 несут только UUID (`draft_id`/`action_id`) и только открывают экран; Action Draft — строгая схема, TTL по серверному времени, повтор запрещён. NFC: ни UID, ни NDEF payload не сохраняются и не отправляются. Геозоны: координаты (≤ 4 знаков) — только в `geofences.json` и `geofence.created`, никогда в пересечениях; без маршрутов и фонового трекинга. Захват: содержимое — только в `PUT /captures` после подтверждения; в событиях — ни текста, ни URL, ни имени файла, ни метаданных; изображения без EXIF/GPS; Share Extension не получает токен и не ходит в сеть.
 - Не логировать содержимое фотографий, `PHAsset.localIdentifier`, имена файлов, даты отдельных снимков, EXIF/геоданные, токены, pairing-коды, тела запросов с чувствительными данными. Допустимы только агрегаты (счётчики) и коды ошибок.
 - Фотографии и их производные (превью, хэши, метаданные) **никогда** не отправляются в Katana. Сервер получает только итоги cleanup-сессии (см. `docs/API.md`).
 - Всё, что приходит через custom URL scheme, QR-код или ответ сервера, — недоверенный ввод: валидировать, не выполнять разрушительных действий без подтверждения в UI.
@@ -38,8 +39,9 @@
 - Никогда не запрашивать несколько разрешений сразу и не запрашивать их на старте приложения.
 - Каждое новое разрешение = новый `INFOPLIST_KEY_*Usage Description` в `project.yml` + запись в `docs/DECISIONS.md`.
 - Dashboard не запрашивает разрешений. Доступ к фото — только кнопкой «Разрешить доступ к фото» внутри Screenshot Cleanup (D-033); камера — только «Сканировать QR».
-- Custom URL scheme (D-032) только открывает экран: никаких удалений, pairing, сети, flush, credentials и запросов разрешений по ссылке.
+- Custom URL scheme (D-032) только открывает экран: никаких удалений, pairing, сети, flush, credentials и запросов разрешений по ссылке. Единственное исключение — локальный opt-in «Выполнять сразу после открытия» для отдельного NFC-действия (D-055): выключен по умолчанию, включается только в UI Connector с предупреждением, создаёт только `nfc.action.completed` через очередь.
 - Capability Lab (D-034, D-035): каждый probe — только своей кнопкой и только своё разрешение; геолокация только When In Use (Always-ключей и API нет); кадры, координаты и данные движения не покидают адаптеры (Void-API); в snapshot — только безопасные коды `CapabilityProbeDetail`.
+- v0.3 (D-046, D-049): Always — только кнопками «Зарегистрировать геозону» и Capability Lab (Always / Region monitoring); `requestAlwaysAuthorization` и регистрация регионов — только в `Features/Geofences/SystemGeofenceAccess.swift`. `UIBackgroundModes`, `allowsBackgroundLocationUpdates`, significant-change по-прежнему запрещены. Новые entitlements (NFC, App Group) и встраивание Share Extension — только отдельным решением после проверки подписи на iPhone.
 - v0.2 (D-044): Motion — только «Определить текущую активность» / «Начать сессию»; геолокация — только «Определить текущее место» (When In Use, одна фиксация, без фона, геозон и significant-change); уведомления — только «Создать напоминание». Ссылки v2 (D-042) только открывают экран: черновик напоминания загружается кнопкой, уведомление создаётся кнопкой.
 
 ## Безопасная модель удаления (PhotoKit)
@@ -70,6 +72,6 @@
 - CI: `.github/workflows/build-ios.yml` — unsigned-сборка `KatanaConnector.ipa` (artifact `katana-connector-unsigned-ipa`).
 - Структура: `Sources/App`, `Sources/Core` (модели/парсеры/wire — только Foundation; Security — только Keychain; Combine — только координаторы — D-024), `Sources/Features/<Feature>`, `Sources/Shared` (только реально общее), `Tests/KatanaConnectorTests`. Без локальных SPM-пакетов и пустых заготовок (D-013, D-018).
 - Wire values моделей (snake_case) после релиза не меняются; любое изменение — только вместе с тестами и записью в `DECISIONS.md`.
-- Идентификаторы хранения (Bundle ID, Keychain service/account, пути и версии файлов в Application Support, ключ UserDefaults) неизменны — иначе обновление поверх теряет данные (D-036, D-043: `ActivityJournal/activity-journal.json`, `LocationCheckIn/check-ins.json`, `Reminders/reminders.json`, все v1). Новые данные — не в `UserDefaults`.
+- Идентификаторы хранения (Bundle ID, Keychain service/account, пути и версии файлов в Application Support, ключ UserDefaults) неизменны — иначе обновление поверх теряет данные (D-036, D-043: `ActivityJournal/activity-journal.json`, `LocationCheckIn/check-ins.json`, `Reminders/reminders.json`, все v1; D-052: `ActionDrafts/action-drafts.json`, `NFCActions/nfc-actions.json`, `Geofences/geofences.json`, `CaptureInbox/`). Новые данные — не в `UserDefaults`.
 - Минимальная iOS: 16.0. Язык: Swift 5, SwiftUI. Только фреймворки Apple.
 - Язык UI и документации — русский; идентификаторы в коде и API — английский.

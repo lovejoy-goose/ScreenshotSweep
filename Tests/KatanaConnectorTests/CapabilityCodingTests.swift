@@ -33,6 +33,9 @@ final class CapabilityCodingTests: XCTestCase {
             .localNetwork: "local_network", .contacts: "contacts", .calendar: "calendar",
             .reminders: "reminders", .faceID: "face_id", .microphone: "microphone",
             .speech: "speech", .healthKit: "health_kit", .coreNFC: "core_nfc",
+            // v0.3 (D-051): appended only.
+            .coreNFCWrite: "core_nfc_write", .appGroup: "app_group", .shareExtension: "share_extension",
+            .locationAlways: "location_always", .regionMonitoring: "region_monitoring",
         ]
         XCTAssertEqual(expected.count, CapabilityID.allCases.count)
         for id in CapabilityID.allCases {

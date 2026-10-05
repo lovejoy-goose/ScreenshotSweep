@@ -64,6 +64,23 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             build
 
+      - name: Build Share Extension (not embedded, D-046)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project KatanaConnector.xcodeproj \
+            -target KatanaShareExtension \
+            -configuration Release \
+            -sdk iphoneos \
+            SYMROOT="$PWD/build-extension" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+          EXT=build-extension/Release-iphoneos/KatanaShareExtension.appex
+          test -d "$EXT"
+          plutil -extract NSExtension.NSExtensionPointIdentifier raw -o - "$EXT/Info.plist" | grep -qx "com.apple.share-services"
+
       - name: Package .ipa
         run: |
           APP=build/Build/Products/Release-iphoneos/KatanaConnector.app
@@ -74,8 +91,11 @@ jobs:
           for key in NSCameraUsageDescription NSLocationWhenInUseUsageDescription NSMotionUsageDescription NSPhotoLibraryUsageDescription; do
             plutil -extract "$key" xml1 -o - "$APP/Info.plist" > /dev/null
           done
-          # ...and no Always location, background modes or entitlements.
-          for key in NSLocationAlwaysUsageDescription NSLocationAlwaysAndWhenInUseUsageDescription UIBackgroundModes; do
+          # Always only for user geofences (D-049): its description must be present...
+          plutil -extract NSLocationAlwaysAndWhenInUseUsageDescription xml1 -o - "$APP/Info.plist" > /dev/null
+          # ...but no legacy Always key, background modes, NFC usage or embedded extensions (D-046).
+          test ! -d "$APP/PlugIns"
+          for key in NSLocationAlwaysUsageDescription UIBackgroundModes NFCReaderUsageDescription; do
             if plutil -extract "$key" xml1 -o - "$APP/Info.plist" > /dev/null 2>&1; then echo "Unexpected $key"; exit 1; fi
           done
           rm -rf Payload && mkdir Payload

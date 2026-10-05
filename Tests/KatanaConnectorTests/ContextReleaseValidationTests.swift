@@ -120,7 +120,7 @@ final class ContextReleaseValidationTests: XCTestCase {
 
         let events = sentEvents()
         let types = events.compactMap { $0["type"] as? String }
-        XCTAssertEqual(Set(types), Set(ContextEventType.allCases.map(\.rawValue)))
+        XCTAssertEqual(Set(types), Set(ContextEventType.version02.map(\.rawValue)))
         XCTAssertEqual(types.count, 5, "exactly one event per action")
         XCTAssertEqual(Set(events.compactMap { $0["event_id"] as? String }).count, 5)
         for event in events {
@@ -320,17 +320,17 @@ final class ContextReleaseValidationTests: XCTestCase {
 
         let project = try String(contentsOf: repositoryRoot.appendingPathComponent("project.yml"))
         XCTAssertTrue(project.contains("PRODUCT_BUNDLE_IDENTIFIER: app.katana.connector\n"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION: \"0.2.0\""))
+        XCTAssertTrue(project.contains("MARKETING_VERSION: \"0.3.0\""))
     }
 
     func testInfoPlistHasNoAlwaysBackgroundOrEntitlements() throws {
         let project = try String(contentsOf: repositoryRoot.appendingPathComponent("project.yml"))
-        for forbidden in ["NSLocationAlways", "UIBackgroundModes", "CODE_SIGN_ENTITLEMENTS", "entitlements", "aps-environment",
+        for forbidden in ["NSLocationAlwaysUsageDescription", "UIBackgroundModes", "CODE_SIGN_ENTITLEMENTS", "entitlements", "aps-environment",
                           "NSBluetooth", "NFCReaderUsageDescription", "NSHealth", "BGTaskScheduler"] {
             XCTAssertFalse(project.contains(forbidden), forbidden)
         }
         let usageKeys = project.split(separator: "\n").filter { $0.contains("UsageDescription") }
-        XCTAssertEqual(usageKeys.count, 4, "camera, location (When In Use), motion, photos — nothing new in v0.2")
+        XCTAssertEqual(usageKeys.count, 5, "camera, location (When In Use), motion, photos; Always for geofences since v0.3 (D-049)")
         let location = try XCTUnwrap(usageKeys.first { $0.contains("NSLocationWhenInUseUsageDescription") })
         XCTAssertTrue(location.contains("Location Check-in") && location.contains("подтверждения"))
         let motion = try XCTUnwrap(usageKeys.first { $0.contains("NSMotionUsageDescription") })

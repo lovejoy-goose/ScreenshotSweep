@@ -35,6 +35,16 @@ struct RootView: View {
                         RemindersView()
                     case .reminderDraft(let id):
                         ReminderDraftView(draftID: id)
+                    case .actionDraft(let id):
+                        ActionDraftView(draftID: id)
+                    case .nfcActions:
+                        NFCActionsView()
+                    case .nfcActionPreview(let id):
+                        NFCActionPreviewView(actionID: id, source: .shortcut)
+                    case .geofences:
+                        GeofencesView()
+                    case .capture:
+                        CaptureView()
                     }
                 }
         }

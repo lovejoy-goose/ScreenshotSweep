@@ -572,15 +572,19 @@ final class CapabilityLabTests: XCTestCase {
     }
 
     func testAlwaysLocationIsNeverRequested() throws {   // 23
+        // Since v0.3 (D-049) Always and region monitoring exist only in the geofence adapter.
         let sources = repositoryRoot.appendingPathComponent("Sources")
         let enumerator = try XCTUnwrap(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil))
         var scanned = 0
         for case let url as URL in enumerator where url.pathExtension == "swift" {
             let text = try String(contentsOf: url)
             scanned += 1
-            XCTAssertFalse(text.contains("requestAlwaysAuthorization"), url.lastPathComponent)
+            if url.lastPathComponent != "SystemGeofenceAccess.swift" {
+                XCTAssertFalse(text.contains("requestAlwaysAuthorization()"), url.lastPathComponent)
+                XCTAssertFalse(text.contains("startMonitoring"), url.lastPathComponent)
+            }
             XCTAssertFalse(text.contains("allowsBackgroundLocationUpdates"), url.lastPathComponent)
-            XCTAssertFalse(text.contains("startMonitoring"), url.lastPathComponent)
+            XCTAssertFalse(text.contains("SignificantLocationChanges"), url.lastPathComponent)
         }
         XCTAssertGreaterThan(scanned, 20)
     }
@@ -710,6 +714,7 @@ final class CapabilityLabTests: XCTestCase {
         XCTAssertEqual(CapabilityProbeDetail.allCases.map(\.rawValue), [
             "camera_frame_received", "location_fix_received", "motion_sample_received", "test_notification_scheduled",
             "permission_denied", "permission_restricted", "unavailable", "timed_out", "cancelled", "system_error",
+            "always_authorized", "region_monitoring_available", "requires_settings",
         ])
     }
 
@@ -733,7 +738,7 @@ final class CapabilityLabTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_NSCameraUsageDescription:"))
         XCTAssertTrue(project.contains("Capability Lab"), "camera text covers QR pairing and the manual probe")
         XCTAssertTrue(project.contains("INFOPLIST_FILE: Config/KatanaConnector-Info.plist"))
-        for forbidden in ["NSLocationAlways", "UIBackgroundModes", "CODE_SIGN_ENTITLEMENTS", "entitlements", "aps-environment"] {
+        for forbidden in ["NSLocationAlwaysUsageDescription", "UIBackgroundModes", "CODE_SIGN_ENTITLEMENTS", "entitlements", "aps-environment"] {
             XCTAssertFalse(project.contains(forbidden), forbidden)
         }
 

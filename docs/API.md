@@ -1,6 +1,6 @@
 # Katana API — контракт Connector
 
-> Статус: v0.1 (pairing, маршруты 3–5, `screenshot_cleanup.completed`, ссылки v1) проверен end-to-end на реальном iPhone и Katana (release v0.1.0). v0.2 (маршрут 7, ссылки v2, пять новых событий) — клиентский контракт, который должна реализовать Katana; ждёт итоговой ручной проверки. Все адреса ниже — плейсхолдеры.
+> Статус: v0.1 проверен end-to-end (release v0.1.0). v0.2 (маршрут 7, ссылки v2, пять событий) развёрнут в Katana и проверен; открыты post-merge проверки баннера напоминания и `reminder.local.cancelled`. v0.3 (маршруты 8–9, ссылки v3, семь событий, новые capability ID) — клиентский контракт, который должна реализовать Katana. Все адреса ниже — плейсхолдеры.
 
 ## Общие правила
 
@@ -10,7 +10,7 @@
 - Авторизация после pairing: device token в заголовке (например, `Authorization: Bearer <device_token>`). Токен хранится только в Keychain и никогда не логируется.
 - Версия контракта передаётся клиентом (например, поле или заголовок `api_version`) — точный механизм TBD.
 - В API **никогда** не передаются: изображения, превью, хэши изображений, `PHAsset.localIdentifier`, имена файлов, даты отдельных снимков, EXIF, геоданные снимков, сырые данные движения (Motion samples, временные ряды), высота/скорость/курс/этаж/сырая точность геолокации, токены и коды.
-- Координаты устройства передаются **только** в событии `location.check_in.created`, только после предпросмотра и явного подтверждения пользователя и только округлёнными (D-040).
+- Координаты устройства передаются **только** в событиях `location.check_in.created` (D-040) и `geofence.created` (≤ 4 знаков, D-049) — только после предпросмотра и явного подтверждения и только округлёнными. Содержимое захвата (текст, URL, файлы) — только в теле `PUT /captures` после подтверждения (D-050), никогда в событиях.
 
 ## Операции
 
@@ -144,12 +144,12 @@ POST {base_url}/api/connector/capabilities/report
 
 | Поле | Значения |
 |---|---|
-| `id` | `photos`, `camera`, `vision_ocr`, `files`, `current_location`, `background_location`, `motion`, `local_notifications`, `bluetooth`, `local_network`, `contacts`, `calendar`, `reminders`, `face_id`, `microphone`, `speech`, `health_kit`, `core_nfc` |
+| `id` | `photos`, `camera`, `vision_ocr`, `files`, `current_location`, `background_location`, `motion`, `local_notifications`, `bluetooth`, `local_network`, `contacts`, `calendar`, `reminders`, `face_id`, `microphone`, `speech`, `health_kit`, `core_nfc`; с v0.3 также `core_nfc_write`, `app_group`, `share_extension`, `location_always`, `region_monitoring` (сервер должен принимать неизвестные ему id, не отклоняя отчёт) |
 | `availability` | `available`, `planned`, `missing_entitlement`, `unsupported_device` |
 | `authorization` | `unknown`, `not_required`, `not_requested`, `granted`, `limited`, `denied`, `restricted` |
 | `probe_state` | `not_run`, `passed`, `failed` |
 | `checked_at` | время последней проверки, опускается, если нет |
-| `detail` | безопасный код результата Capability Lab, опускается, если нет: `camera_frame_received`, `location_fix_received`, `motion_sample_received`, `test_notification_scheduled`, `permission_denied`, `permission_restricted`, `unavailable`, `timed_out`, `cancelled`, `system_error` (D-035). Никогда не локализованный текст и не сырая ошибка |
+| `detail` | безопасный код результата Capability Lab, опускается, если нет: `camera_frame_received`, `location_fix_received`, `motion_sample_received`, `test_notification_scheduled`, `permission_denied`, `permission_restricted`, `unavailable`, `timed_out`, `cancelled`, `system_error` (D-035); с v0.3 — `always_authorized`, `region_monitoring_available`, `requires_settings`. Никогда не локализованный текст и не сырая ошибка |
 
 `device` — `ConnectorDeviceSummary` (`last_seen_at` опускается, если нет); `connection_state`: `unpaired`, `pairing`, `connected`, `revoked`, `error`. Функции Connector (например, Screenshot Cleanup) — не capabilities; они сообщают о себе событиями.
 
@@ -264,6 +264,100 @@ Accept: application/json
 
 Тело ошибки клиентом не разбирается. Ни при какой ошибке ничего не планируется.
 
+### 8. Action draft (v0.3, D-047)
+
+```
+GET {base_url}/api/connector/action-drafts/{draft_id}
+Authorization: Bearer <device_token>
+Accept: application/json
+```
+
+Только по кнопке «Загрузить действие» на экране, открытом ссылкой v3 `feature=action`; без автоматических повторов. Общие правила авторизованных запросов (Bearer из Keychain, без редиректов, timeout 15 с, ответ ≤ 64 KiB, `requires_repair` → запрос не отправляется). Черновик принадлежит устройству токена; чужой — как несуществующий (`404`).
+
+Ответ `200` — **строгая схема**: ровно эти ключи, лишние или недостающие → `invalidResponse`.
+
+```json
+{
+  "draft_id": "0b9f6c1e-2d3a-4b5c-8d6e-7f8091a2b3c4",
+  "kind": "geofence_create",
+  "server_time": "2026-10-05T09:00:00Z",
+  "expires_at": "2026-10-05T10:00:00Z",
+  "payload": { "latitude": 55.7558, "longitude": 37.6173, "radius_m": 200, "name_suggestion": "Офис" }
+}
+```
+
+| Поле | Правило |
+|---|---|
+| `draft_id` | UUID, совпадает с запрошенным |
+| `kind` | `nfc_action`, `geofence_create`, `shared_capture` |
+| `server_time`, `expires_at` | ISO 8601; действителен, если `server_time < expires_at` и `expires_at − server_time ≤ 7 дней` (часы iPhone не используются), иначе `expired` |
+| `payload` для `nfc_action` | ровно `action_id` (UUID), `label` (1…60 Unicode scalars, без управляющих символов) |
+| `payload` для `geofence_create` | ровно `latitude` (−90…90), `longitude` (−180…180), `radius_m` (100, 200, 500 или 1000), `name_suggestion` (1…40, без управляющих символов). Клиент округляет координаты до 4 знаков |
+| `payload` для `shared_capture` | ровно `accepted_kinds` (непустой массив без повторов из `text`, `url`, `image`, `pdf`, `file`), `prompt` (1…200, без управляющих символов, кроме перевода строки) |
+
+| HTTP / условие | Ошибка | UI |
+|---|---|---|
+| 401 | `unauthorized` | «Требуется повторное подключение», без повторов |
+| 403, 404 | `notFound` | «Действие не найдено» |
+| 409 | `consumed` | «Действие уже выполнено» |
+| 410 или TTL по `server_time` | `expired` | «Срок действия истёк» |
+| 408, сеть | `offline` | повторяемая ошибка |
+| 429 / 5xx | `rateLimited` / `serverError` | повторяемая ошибка |
+| 3xx, прочее, > 64 KiB, нарушение схемы | `invalidResponse` | «Katana ответила неожиданно» |
+
+**Consume:** отдельного запроса нет. Сервер атомарно помечает черновик использованным, когда принимает событие `action_draft.accepted` с этим `draft_id` (в одной транзакции с записью события). Повтор того же `event_id` → `duplicate`; другое событие для уже использованного черновика → `rejected` с `code: draft_consumed`; для истёкшего → `rejected` с `code: draft_expired`. После consume `GET` отвечает `409`.
+
+### 9. Capture upload (v0.3, D-050)
+
+```
+PUT {base_url}/api/connector/captures/{capture_id}
+Authorization: Bearer <device_token>
+Content-Type: <allowlist>
+X-Katana-Capture-Kind: text | url | image | pdf | file
+X-Katana-Capture-SHA256: <64 hex, lowercase>
+Accept: application/json
+<тело — байты захвата>
+```
+
+Выполняется только основным приложением, только после «Отправить в Katana» на preview; Share Extension сеть не использует. `{capture_id}` — UUID в нижнем регистре. Timeout 60 с, без редиректов, ответ ≤ 64 KiB.
+
+| `kind` | `Content-Type` | Тело | Лимит |
+|---|---|---|---|
+| `text` | `text/plain; charset=utf-8` | UTF-8 текст | 10 000 scalars (≤ 40 KiB) |
+| `url` | `text/uri-list` | одна строка `http(s)://…` | 2048 байт |
+| `image` | `image/jpeg`, `image/png`, `image/heic` | изображение без метаданных (кроме ориентации) | 10 MiB |
+| `pdf` | `application/pdf` | документ как есть (метаданные PDF не очищаются) | 10 MiB |
+| `file` | `text/plain; charset=utf-8`, `text/csv`, `application/json` | UTF-8 файл | 5 MiB |
+
+Имя файла, локальный путь, PHAsset ID, EXIF/GPS и иные метаданные не передаются. Сервер обязан проверить `Content-Length`, SHA-256 тела и соответствие сигнатуры `Content-Type`.
+
+Ответ `200`/`201`:
+
+```json
+{ "capture_id": "…", "object_ref": "cap_7Hq2x", "size_bytes": 1234, "sha256": "…" }
+```
+
+`object_ref` — непрозрачная ссылка `[A-Za-z0-9_-]{1,64}`, без содержимого и без URL. Идемпотентность: повтор того же `capture_id` с тем же SHA-256 → тот же `object_ref`; с другим SHA-256 → `409`. Ошибки: 401 → `requires_repair`; 409 → конфликт (захват отмечается неудачным, без повторов); 413/415/422 → отклонено, без повторов; 408/сеть/429/5xx → повтор при следующем запуске/«Синхронизировать»; 3xx/прочее → `invalidResponse`. Сервер хранит объект в истории без раскрытия содержимого в событиях и логах.
+
+### 10. NFC HTTPS bridge (v0.3, D-054)
+
+```
+GET https://<katana-host>/c/nfc/{action_id}
+```
+
+Публичная страница для постоянных NFC-меток. Без авторизации, без cookies, без редиректов на другие хосты, без побочных эффектов: GET ничего не выполняет, не меняет и не создаёт событий.
+
+| Правило | Значение |
+|---|---|
+| `{action_id}` | канонический UUID в нижнем регистре; иначе `404` с пустым телом |
+| Ответ | `200 text/html; charset=utf-8`, одинаковый для любого корректного UUID (не раскрывает существование и название действия) |
+| Заголовки | `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, `X-Robots-Tag: noindex, nofollow`, `Content-Security-Policy: default-src 'none'; script-src 'sha256-…'; style-src 'unsafe-inline'`, `X-Content-Type-Options: nosniff` |
+| Содержимое | кнопка «Открыть в Katana Connector» со ссылкой `katana-connector://open?v=3&feature=nfc_action&action_id={action_id}` и встроенный скрипт, который переходит по ней сразу; никаких внешних ресурсов, аналитики и параметров кроме `action_id` |
+| Логи | путь логируется как `/c/nfc/:id`; `action_id`, User-Agent и IP моста в аналитику не попадают |
+| Метка | единственная NDEF URI-запись с этим HTTPS-адресом; без UID, текста, токенов; метка не блокируется |
+
+Эталонная страница — `docs/nfc-bridge-reference.html`; запись метки — `docs/NFC_TAG_SETUP.md`.
+
 ## Custom URL scheme v1 (PWA → Connector, KC-007)
 
 Katana PWA может открыть экран Connector ссылкой. Это **только навигация**: в сеть ничего не уходит, данные и credentials не передаются.
@@ -313,6 +407,33 @@ katana-connector://open?v=2&feature=reminder&draft_id=<uuid>
 - `activity_journal` / `location_check_in` — открывают экран функции; разрешения Motion и геолокации запрашиваются только кнопками внутри.
 - `reminder` — открывает «Локальные напоминания» и поверх — экран черновика. Текст напоминания в ссылке **не передаётся**; черновик загружается только кнопкой «Загрузить напоминание» (маршрут 7); уведомление создаётся только кнопкой «Создать напоминание».
 - Невалидная ссылка игнорируется и не меняет текущий экран. Ссылка не запрашивает разрешения, не планирует уведомления, не создаёт события и не обращается к сети.
+
+## Custom URL scheme v3 (PWA / Shortcuts → Connector, V3-001)
+
+Ссылки v1 и v2 не меняются. v3 добавляет две ссылки — **только навигация** (D-047):
+
+```
+katana-connector://open?v=3&feature=action&draft_id=<uuid>
+katana-connector://open?v=3&feature=nfc_action&action_id=<uuid>
+```
+
+| Часть | Правило |
+|---|---|
+| scheme / host / path, user, password, port, fragment, длина, ASCII, percent-encoding | как в v2 |
+| `v` | ровно один раз, строго `3` |
+| `feature` | `action` или `nfc_action`; функции v1/v2 с `v=3` → `unsupportedVersion` |
+| `draft_id` | ровно один раз и только для `action`, канонический UUID |
+| `action_id` | ровно один раз и только для `nfc_action`, канонический UUID |
+| прочие параметры | запрещены (`token`, `code`, `base_url`, `device_id`, `title`, `body`, `command`, `latitude`, `name`, `url`, …) |
+
+- `action` → экран черновика действия; загрузка — кнопкой, выполнение — кнопкой с подтверждением.
+- `nfc_action` → preview локально зарегистрированного NFC-действия; выполнение — только «Выполнить». Неизвестное/выключенное/истёкшее действие показывается явно.
+
+### Настройка NFC через Shortcuts (гарантированный путь)
+
+1. Connector → «NFC-действия» → действие → «Скопировать ссылку для Shortcuts» (ссылка содержит только `action_id`).
+2. Команды → Автоматизация → «NFC» → отсканировать метку → действие «Открыть URL» → вставить ссылку → выключить «Спрашивать перед запуском» по желанию (подтверждение всё равно будет в Connector).
+3. Касание метки открывает preview в Connector; ничего не выполняется без «Выполнить».
 
 ## События
 
@@ -527,4 +648,66 @@ katana-connector://open?v=2&feature=reminder&draft_id=<uuid>
 3. Приём пяти новых типов в `events/batch` (`accepted` / `duplicate` по `event_id`; `rejected` с кодом для неизвестных или невалидных), валидацию payload по таблицам выше, допуск 1 с для суммы секунд активности.
 4. Для check-in — reverse geocoding по `label_requested` на сервере; хранение координат по политике Katana.
 5. По желанию — пометку черновика consumed по `reminder.local.scheduled` (Q-10).
+
+## События v0.3 (Physical Triggers & Capture)
+
+Правила D-038 действуют без изменений (точные ключи, `event_id` один раз, `session_id` — собственный идентификатор записи, UUID в нижнем регистре, ISO 8601 UTC до секунды, существующая очередь и scope).
+
+| `type` | `session_id` конверта | `occurred_at` | Ключи payload |
+|---|---|---|---|
+| `action_draft.accepted` | `draft_id` | `accepted_at` | `draft_id`, `kind`, `accepted_at`, `result_ref` |
+| `nfc.action.completed` | `execution_id` | `confirmed_at` | `action_id`, `execution_id`, `source`, `confirmed_at`, `result`, `interrupted` |
+| `geofence.created` | `geofence_id` | `created_at` | `geofence_id`, `latitude`, `longitude`, `radius_m`, `created_at`, `origin` |
+| `geofence.transitioned` | `transition_id` | `occurred_at` | `geofence_id`, `transition_id`, `transition`, `occurred_at`, `delivery_context`, `interrupted` |
+| `geofence.removed` | `geofence_id` | `removed_at` | `geofence_id`, `removed_at` |
+| `share.capture.created` | `capture_id` | `created_at` | `capture_id`, `kind`, `size_bucket`, `created_at`, `upload_status`, `object_ref` |
+| `share.capture.cancelled` | `capture_id` | `cancelled_at` | `capture_id`, `kind`, `size_bucket`, `cancelled_at`, `upload_status` |
+
+Закрытые значения:
+
+| Поле | Значения |
+|---|---|
+| `action_draft.accepted.kind` | `nfc_action`, `geofence_create`, `shared_capture` |
+| `result_ref` | UUID результата: `action_id` (nfc_action), `geofence_id` (geofence_create), `capture_id` (shared_capture) |
+| `nfc.action.completed.source` | `shortcut` (внешняя ссылка: Команды или HTTPS-мост с метки, D-054), `core_nfc` |
+| `nfc.action.completed.result` | `confirmed` («Выполнить» или локальный opt-in «Выполнять сразу после открытия», D-055 — сервер их не различает), `declined` («Отклонить») |
+| `interrupted` (nfc) | `true`, если ожидающий запуск был восстановлен после перезапуска приложения |
+| `geofence.created.latitude/longitude` | числа, округлены до ≤ 4 знаков |
+| `radius_m` | `100`, `200`, `500`, `1000` |
+| `origin` | `user`, `action_draft` |
+| `transition` | `enter`, `exit` |
+| `delivery_context` | `foreground`, `background` |
+| `interrupted` (geofence) | `true`, если системный регион пришлось зарегистрировать заново (после потери регистрации) до этого пересечения |
+| `share.capture.*.kind` | `text`, `url`, `image`, `pdf`, `file` |
+| `size_bucket` | `under_10kb`, `under_100kb`, `under_1mb`, `under_10mb` |
+| `upload_status` | `uploaded` (created), `not_uploaded` (cancelled) |
+| `object_ref` | значение из ответа маршрута 9 |
+
+Порядок для черновиков: `geofence_create` → `geofence.created`, затем `action_draft.accepted`; `shared_capture` → `share.capture.created`, затем `action_draft.accepted`; `nfc_action` → только `action_draft.accepted` (регистрация на iPhone).
+
+Примеры:
+
+```json
+{ "type": "nfc.action.completed", "session_id": "<execution_id>", "occurred_at": "2026-10-05T09:00:00Z",
+  "payload": { "action_id": "<uuid>", "execution_id": "<uuid>", "source": "shortcut",
+               "confirmed_at": "2026-10-05T09:00:00Z", "result": "confirmed", "interrupted": false } }
+{ "type": "geofence.transitioned", "session_id": "<transition_id>", "occurred_at": "2026-10-05T18:30:00Z",
+  "payload": { "geofence_id": "<uuid>", "transition_id": "<uuid>", "transition": "exit",
+               "occurred_at": "2026-10-05T18:30:00Z", "delivery_context": "background", "interrupted": false } }
+{ "type": "share.capture.created", "session_id": "<capture_id>", "occurred_at": "2026-10-05T12:00:00Z",
+  "payload": { "capture_id": "<uuid>", "kind": "image", "size_bucket": "under_1mb",
+               "created_at": "2026-10-05T12:00:00Z", "upload_status": "uploaded", "object_ref": "cap_7Hq2x" } }
+```
+
+**Не передаётся никогда:** UID метки, NDEF payload, текст, URL, имена файлов, пути, PHAsset ID, EXIF/GPS, координаты в пересечениях и удалении, location samples, маршруты, имя геозоны.
+
+### Что должна реализовать Katana для v0.3
+
+1. **Action drafts:** создание черновиков трёх видов (UI Katana), `GET /api/connector/action-drafts/{draft_id}` по строгой схеме выше (с `server_time`), привязка к устройству, 404 для чужих, 410 после TTL (≤ 7 дней), 409 после consume; атомарный consume при приёме `action_draft.accepted` (+ `rejected` `draft_consumed` / `draft_expired`).
+2. **NFC action registry:** `action_id` + метка; регистрация на устройстве по `action_draft.accepted` (`result_ref` = `action_id`); приём `nfc.action.completed` (`rejected` с `action_unknown`/`action_disabled` для неизвестных/выключенных на сервере); идемпотентность по `event_id`, по `execution_id` — не больше одного события.
+3. **Geofence registry:** `geofence.created` (координаты ≤ 4 знаков, радиус из набора; по политике Katana — reverse geocoding только для подписи места, без хранения истории перемещений), `geofence.transitioned` без координат, `geofence.removed`; `rejected` `geofence_unknown` для пересечений неизвестной геозоны.
+4. **Capture upload lifecycle:** `PUT /api/connector/captures/{capture_id}` (allowlist типов, лимиты, проверка SHA-256 и сигнатуры, идемпотентность, 409 при другом хеше), хранение объекта, `object_ref`; `share.capture.created`/`cancelled` без содержимого; серверная история без утечки содержимого в события и логи; объекты без подтверждающего события через 24 ч можно удалять.
+5. **Capability report:** принимать новые `id` и `detail` без отказа всего отчёта.
+6. **Ссылки:** кнопки/QR Katana для `…v=3&feature=action&draft_id=<uuid>`; для NFC — показ ссылки `…v=3&feature=nfc_action&action_id=<uuid>` для Shortcuts.
+7. **NFC HTTPS bridge (маршрут 10, D-054):** `GET /c/nfc/{action_id}` по `docs/nfc-bridge-reference.html`; в Katana Devices у каждого `nfc_action` — HTTPS-адрес и QR для записи через NFC Tools.
 

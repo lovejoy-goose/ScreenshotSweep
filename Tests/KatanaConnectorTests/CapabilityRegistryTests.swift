@@ -19,11 +19,11 @@ final class CapabilityRegistryTests: XCTestCase {
     func testRegistryOrderIsStable() {
         let expected: [CapabilityID] = [
             .photos, .camera, .visionOCR, .microphone, .speech,
-            .files,
-            .currentLocation, .backgroundLocation,
+            .files, .shareExtension, .appGroup,
+            .currentLocation, .backgroundLocation, .locationAlways, .regionMonitoring,
             .motion,
             .localNotifications,
-            .bluetooth, .localNetwork, .coreNFC,
+            .bluetooth, .localNetwork, .coreNFC, .coreNFCWrite,
             .contacts, .calendar, .reminders,
             .faceID,
             .healthKit,
@@ -47,18 +47,20 @@ final class CapabilityRegistryTests: XCTestCase {
         XCTAssertEqual(photos.probeState, .notRun)
         XCTAssertNil(photos.checkedAt)
 
-        for id in [CapabilityID.healthKit, .coreNFC] {
+        for id in [CapabilityID.healthKit, .coreNFC, .coreNFCWrite, .appGroup, .shareExtension] {
             XCTAssertEqual(registry.snapshot(for: id).availability, .missingEntitlement, "\(id)")
         }
 
         // Implemented as Capability Lab probes (KC-008): honest default is available;
         // the device check may turn it into unsupported_device.
-        let lab: [CapabilityID] = [.camera, .currentLocation, .motion, .localNotifications]
+        let lab: [CapabilityID] = [.camera, .currentLocation, .motion, .localNotifications, .locationAlways, .regionMonitoring]
         for id in lab {
             XCTAssertEqual(registry.snapshot(for: id).availability, .available, "\(id)")
         }
 
-        let planned = CapabilityID.allCases.filter { !([.photos, .healthKit, .coreNFC] + lab).contains($0) }
+        let planned = CapabilityID.allCases.filter {
+            !([.photos, .healthKit, .coreNFC, .coreNFCWrite, .appGroup, .shareExtension] + lab).contains($0)
+        }
         XCTAssertTrue(planned.contains(.backgroundLocation))
         for id in planned {
             XCTAssertEqual(registry.snapshot(for: id).availability, .planned, "\(id)")

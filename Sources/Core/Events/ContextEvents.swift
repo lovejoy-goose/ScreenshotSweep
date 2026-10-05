@@ -1,12 +1,25 @@
 import Foundation
 
-/// Event types added in v0.2 (D-038). Raw values are wire values and must never change.
+/// Event types added in v0.2 (D-038) and v0.3 (D-051). Raw values are wire values and must never change.
 enum ContextEventType: String, CaseIterable, Sendable {
     case activitySnapshot = "activity.snapshot.completed"
     case activitySession = "activity.session.completed"
     case locationCheckIn = "location.check_in.created"
     case reminderScheduled = "reminder.local.scheduled"
     case reminderCancelled = "reminder.local.cancelled"
+    // v0.3 (D-051)
+    case actionDraftAccepted = "action_draft.accepted"
+    case nfcActionCompleted = "nfc.action.completed"
+    case geofenceCreated = "geofence.created"
+    case geofenceTransitioned = "geofence.transitioned"
+    case geofenceRemoved = "geofence.removed"
+    case captureCreated = "share.capture.created"
+    case captureCancelled = "share.capture.cancelled"
+
+    static let version02: [ContextEventType] = [.activitySnapshot, .activitySession, .locationCheckIn,
+                                                .reminderScheduled, .reminderCancelled]
+    static let version03: [ContextEventType] = [.actionDraftAccepted, .nfcActionCompleted, .geofenceCreated,
+                                                .geofenceTransitioned, .geofenceRemoved, .captureCreated, .captureCancelled]
 
     /// The exact payload keys of this type. Anything else — missing or extra — is rejected before enqueue.
     var payloadKeys: Set<String> {
@@ -24,6 +37,20 @@ enum ContextEventType: String, CaseIterable, Sendable {
             return ["draft_id", "scheduled_for", "notification_id", "authorization", "created_at"]
         case .reminderCancelled:
             return ["draft_id", "notification_id", "cancelled_at"]
+        case .actionDraftAccepted:
+            return ["draft_id", "kind", "accepted_at", "result_ref"]
+        case .nfcActionCompleted:
+            return ["action_id", "execution_id", "source", "confirmed_at", "result", "interrupted"]
+        case .geofenceCreated:
+            return ["geofence_id", "latitude", "longitude", "radius_m", "created_at", "origin"]
+        case .geofenceTransitioned:
+            return ["geofence_id", "transition_id", "transition", "occurred_at", "delivery_context", "interrupted"]
+        case .geofenceRemoved:
+            return ["geofence_id", "removed_at"]
+        case .captureCreated:
+            return ["capture_id", "kind", "size_bucket", "created_at", "upload_status", "object_ref"]
+        case .captureCancelled:
+            return ["capture_id", "kind", "size_bucket", "cancelled_at", "upload_status"]
         }
     }
 }

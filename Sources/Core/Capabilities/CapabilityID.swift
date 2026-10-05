@@ -21,4 +21,10 @@ enum CapabilityID: String, Codable, CaseIterable, Sendable {
     case speech
     case healthKit = "health_kit"
     case coreNFC = "core_nfc"
+    // v0.3 (D-051): appended; existing wire values never change.
+    case coreNFCWrite = "core_nfc_write"
+    case appGroup = "app_group"
+    case shareExtension = "share_extension"
+    case locationAlways = "location_always"
+    case regionMonitoring = "region_monitoring"
 }

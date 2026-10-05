@@ -13,6 +13,11 @@ enum CapabilityProbeDetail: String, Codable, CaseIterable, Sendable {
     case timedOut = "timed_out"
     case cancelled
     case systemError = "system_error"
+    // v0.3 (D-051)
+    case alwaysAuthorized = "always_authorized"
+    case regionMonitoringAvailable = "region_monitoring_available"
+    /// The user has to change a setting (e.g. «Всегда» in Settings) for this to work.
+    case requiresSettings = "requires_settings"
 }
 
 /// Failures a system adapter may report. Mapped to `CapabilityProbeDetail`; the system error
@@ -21,6 +26,7 @@ enum CapabilityProbeError: Error, Equatable, Sendable {
     case unavailable
     case permissionDenied
     case systemError
+    case requiresSettings
 }
 
 // MARK: - Neutral permission states reported by adapters
@@ -67,6 +73,18 @@ enum CapabilityAuthorizationMapping {
         switch permission {
         case .notDetermined: return .notRequested
         case .authorized: return .granted
+        case .denied: return .denied
+        case .restricted: return .restricted
+        case .unknown: return .unknown
+        }
+    }
+
+    /// For «Всегда»: When In Use is only a partial grant.
+    static func locationAlways(_ permission: LocationPermission) -> CapabilityAuthorization {
+        switch permission {
+        case .notDetermined: return .notRequested
+        case .authorizedWhenInUse: return .limited
+        case .authorizedAlways: return .granted
         case .denied: return .denied
         case .restricted: return .restricted
         case .unknown: return .unknown
@@ -132,6 +150,14 @@ struct TestNotificationRequest: Equatable, Sendable {
                                 body: "Тестовое уведомление Capability Lab.",
                                 delay: 5)
     }
+}
+
+/// «Всегда» and region monitoring for the v0.3 probes (implemented by the geofence adapter).
+/// Asks only from the probe's own button; never registers a region.
+protocol LocationAlwaysSystem: Sendable {
+    func permission() async -> LocationPermission
+    func requestAlwaysPermission() async -> LocationPermission
+    func isMonitoringAvailable() async -> Bool
 }
 
 protocol NotificationSystem: Sendable {
