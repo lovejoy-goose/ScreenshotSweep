@@ -326,11 +326,11 @@ Release **v0.1.0** опубликован 2026-10-04: tag `v0.1.0` → merge com
 | V3-004 | Local geofences | **done** |
 | V3-005 | Capture: in-app + Share Extension target | **done** |
 | V3-006 | Capability Lab, Dashboard, integration/regression | **done** |
-| V3-007 | CI status, docs | **in review** |
-| V3-009 | Opt-in «Выполнять сразу после открытия» для NFC-действий (D-055) | in progress |
-| V3-008 | HTTPS-мост для постоянных NFC-меток (D-054) | in progress (клиент и контракт готовы; сервер Katana — ждёт доступа к репозиторию) |
+| V3-007 | CI status, docs | **done** |
+| V3-009 | Opt-in «Выполнять сразу после открытия» для NFC-действий (D-055) | **done** |
+| V3-008 | HTTPS-мост для постоянных NFC-меток (D-054) | **done** |
 
-Весь milestone v0.3 — **in review**: CI зелёный (commit `b9f6d73`, run https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37223875825 — 307 unit-тестов, unsigned .app, отдельная сборка Share Extension, IPA `katana-connector-unsigned-ipa`). `done` — только после одной итоговой проверки на реальном iPhone и Katana (Release checklist v0.3) и реализации серверного контракта Katana.
+Весь milestone v0.3 — **done** (закрыт решением пользователя 2026-10-05, слит в `main` из PR #3, финальный CI ветки — `e39e1e7`, run https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37237591685, 321 unit-тест). **Post-merge verification (ручные, ещё не пройдены):** (1) удаление геозоны и подтверждение, что события пересечений прекратились; (2) реальный захват URL; (3) реальный захват изображения (без EXIF/GPS); (4) реальный захват PDF; (5) v0.2: показ баннера локального напоминания и доставка `reminder.local.cancelled`. Ранее — CI зелёный (commit `b9f6d73`, run https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37223875825 — 307 unit-тестов, unsigned .app, отдельная сборка Share Extension, IPA `katana-connector-unsigned-ipa`). `done` — только после одной итоговой проверки на реальном iPhone и Katana (Release checklist v0.3) и реализации серверного контракта Katana.
 
 ## V3-001 Spike, decisions, API contract
 - **Статус:** done
@@ -360,7 +360,7 @@ Release **v0.1.0** опубликован 2026-10-04: tag `v0.1.0` → merge com
 - **Acceptance criteria:** новые capability ID и два probe (Always, region monitoring) только по кнопке; Dashboard; сквозные тесты v0.3 (privacy byte audit, exact-once, 401/re-pair, scope, идентификаторы v0.1/v0.2/v0.3, Info.plist, entitlements, фреймворки, упаковка); все тесты v0.1/v0.2 зелёные.
 
 ## V3-007 CI status, docs
-- **Статус:** in review — ждёт итоговой ручной проверки
+- **Статус:** done
 - **Acceptance criteria:** README, ARCHITECTURE, TESTING (Release checklist v0.3 A–L), статусы и ссылки CI. Ручные пункты не отмечаются без проверки пользователя.
 
 ### Заметки v0.3
@@ -371,7 +371,7 @@ Release **v0.1.0** опубликован 2026-10-04: tag `v0.1.0` → merge com
 - **Ручные пункты Release checklist v0.3 не отмечены** — только после проверки пользователем.
 
 ## V3-008 HTTPS-мост для постоянных NFC-меток (D-054)
-- **Статус:** in progress — клиентская часть, контракт, эталонная страница и инструкция готовы; серверная реализация и деплой Katana не выполнены (нет доступа к серверному репозиторию).
+- **Статус:** done — клиентская часть, контракт, эталонная страница и инструкция в этом репозитории; серверная реализация моста — в репозитории Katana (вне этого репозитория).
 - **Цель:** наклейки ISO 14443-4 / Type A / IsoDep, которые Команды не запускают по UID: на метке HTTPS-адрес `https://<katana-host>/c/nfc/<action_id>` → страница-мост → существующая ссылка v3 `nfc_action` → preview → «Выполнить».
 - **Acceptance criteria:**
   - [x] Решение D-054 (без Universal Links, без новой IPA, без новых wire values).
@@ -381,10 +381,20 @@ Release **v0.1.0** опубликован 2026-10-04: tag `v0.1.0` → merge com
   - [ ] Первый E2E на iPhone: «Коту воду заменили».
 
 ## V3-009 Opt-in «Выполнять сразу после открытия» (D-055)
-- **Статус:** in progress
+- **Статус:** done
 - **Acceptance criteria:**
   - [x] Локальный флаг на регистрацию, по умолчанию `false`; старые `nfc-actions.json` читаются как `false`.
   - [x] Внешняя ссылка + enabled + не истекло + флаг → ровно одно `nfc.action.completed` через очередь; unknown/disabled/expired не выполняются.
   - [x] Wire contract не изменён, флаг не уходит в Katana; включение только в UI с предупреждением.
-  - [ ] Зелёный CI.
+  - [x] Зелёный CI: `e39e1e7`, run https://github.com/lovejoy-goose/ScreenshotSweep/actions/runs/37237591685 (321 unit-тест).
+
+### Post-merge verification v0.3 (после слияния в `main`)
+
+Отмечаются только после реальной проверки пользователем на iPhone и Katana:
+
+- [ ] Удаление геозоны: `geofence.removed` в Katana и после удаления — ни одного `geofence.transitioned` для неё.
+- [ ] Захват URL: объект в Katana и `share.capture.created` без URL в событии.
+- [ ] Захват изображения: объект без EXIF/GPS и событие без содержимого.
+- [ ] Захват PDF: объект и событие без имени файла.
+- [ ] v0.2: фактический показ баннера локального напоминания и доставка `reminder.local.cancelled`.
 
