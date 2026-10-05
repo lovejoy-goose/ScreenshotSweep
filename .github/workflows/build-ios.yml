@@ -45,8 +45,6 @@ jobs:
           sys.exit("No available iPhone simulator")
           ')
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
-          # Boot in the background while the next step compiles; xcodebuild waits for it if needed.
-          (xcrun simctl boot "$UDID" >/dev/null 2>&1 || true) &
 
       - name: Unit tests (iOS Simulator)
         run: |

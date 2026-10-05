@@ -4,7 +4,7 @@
 
 - Локально может не быть Xcode (только Command Line Tools). Тогда сборка проверяется в CI.
 - CI: `.github/workflows/build-ios.yml` на `macos-15` — `xcodegen generate` → `xcodebuild -scheme KatanaConnector` (unsigned, `iphoneos`) → `KatanaConnector.ipa` в артефакте `katana-connector-unsigned-ipa`. Запускается на push в `main`, на PR и вручную: `gh workflow run build-ios.yml --ref <ветка>`.
-- CI не запускается для изменений только в `*.md` (документация, README, CLAUDE.md): ни один тест не читает Markdown. Новый push в ту же ветку/PR отменяет устаревший прогон. Симулятор загружается в фоне параллельно со сборкой.
+- CI не запускается для изменений только в `*.md` (документация, README, CLAUDE.md): ни один тест не читает Markdown. Новый push в ту же ветку/PR отменяет устаревший прогон.
 - Установка на устройство — Sideloadly (см. `README.md`).
 - Unit-тесты: target `KatanaConnectorTests` (XCTest) компилирует `Sources/Core` без host app (D-018); финальные сквозные регрессии v0.1 — `ConnectorReleaseValidationTests`, v0.2 — `ContextReleaseValidationTests`. В CI шаг «Unit tests (iOS Simulator)» выполняется до device-сборки на динамически выбранном iPhone Simulator.
 - Локальный запуск требует Xcode: `xcodegen generate`, затем `xcodebuild -project KatanaConnector.xcodeproj -scheme KatanaConnector -destination 'platform=iOS Simulator,name=<доступный iPhone>' CODE_SIGNING_ALLOWED=NO test`.
