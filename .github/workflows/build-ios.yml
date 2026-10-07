@@ -3,8 +3,17 @@ name: Build iOS (unsigned)
 on:
   push:
     branches: [main]
+    # Markdown-only changes (docs, README, CLAUDE.md) do not build: no test reads a .md file.
+    # docs/nfc-bridge-reference.html and this workflow are read by tests, so they still build.
+    paths-ignore: ['**/*.md']
   pull_request:
+    paths-ignore: ['**/*.md']
   workflow_dispatch:
+
+# A newer push to the same PR or branch makes the running build obsolete: cancel it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -35,7 +44,6 @@ jobs:
                       print(device["udid"]); sys.exit(0)
           sys.exit("No available iPhone simulator")
           ')
-          xcrun simctl list devices available | grep "$UDID"
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
 
       - name: Unit tests (iOS Simulator)
